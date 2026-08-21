@@ -2196,7 +2196,40 @@ This is genuine, verified success - not the Round 31 false positive:
   attributes/options) or already-matching hash - normal, retried
   automatically on the next run.
 
+## Round 40 — real PRODUCT-scope attribute-value import
+
+Ran `import:product-attribute-values --execute` for real (no `--limit`):
+
+`Written: 17927, Updated: 0, Skipped: 9428, Errors: 0` (total 27,355).
+
+Verified, not assumed:
+
+- `eccube_product_map` rows with `specification_value_hash` set: **17,927**,
+  matching the CLI report exactly.
+- Combined distinct products (ITEM-scope + PRODUCT-scope) carrying real
+  `eccube_spec_*` EAV data across all four value tables: **18,769**, exactly
+  `842 + 17,927` - full reconciliation, confirming ITEM-scope (Grouped) and
+  PRODUCT-scope (Simple) writes land on entirely separate, non-overlapping
+  product sets, as the architecture requires.
+- 3 random products spot-checked: direct SQL against
+  `catalog_product_entity_int` agrees with
+  `ProductRepositoryInterface::getById(..., forceReload: true)->getData()`
+  for every value checked.
+- `ct_*` attribute count still 17, untouched.
+
+Zero errors this run (PRODUCT-scope has no equivalent of the 36
+uncategorized-item gap, since every Simple Product's owning item resolved
+cleanly in the Round 38 assignment run - `needsReview: 0` there).
+
+**The Round 31 false-success bug (`Written: 878, Errors: 0` with zero real
+data) is now fully resolved and proven on real, full-scale data on both
+ITEM and PRODUCT scope.** Remaining open item: a fallback-bucket decision
+for the 36 confirmed-uncategorized items (tracked since Round 32), not a
+blocker for continuing the rest of the milestone.
+
 ### Next
 
-Real `import:product-attribute-values --execute` (Simple Products, PRODUCT
-scope), same verification discipline.
+Continue the remaining milestone components per the user's Step 9 order:
+multi-value positional storage verification, Related Products, Connection
+Parts, then Sync - each through the same
+dry-run→execute→verify→idempotency→sync sequence.
