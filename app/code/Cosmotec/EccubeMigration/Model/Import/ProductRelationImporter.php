@@ -170,7 +170,11 @@ class ProductRelationImporter implements ImporterInterface
                 $context->getRunId(),
                 SyncHistory::ENTITY_TYPE_PRODUCT,
                 SyncHistory::OPERATION_IMPORT,
-                $childMap->getEccubeProductId(),
+                // AbstractModel::getData() returns a raw DB string, not an
+                // int (despite the getter's phpdoc) - record()'s $sourceId
+                // parameter is strictly typed int. Same recurring bug class
+                // as the Round 37/42 fixes.
+                (int) $childMap->getEccubeProductId(),
                 $parentProductId,
                 SyncHistory::STATUS_UPDATED,
                 sprintf('Linked to parent Grouped Product id=%d', $parentProductId)

@@ -11,8 +11,10 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Console\Command;
 
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
+use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\ProductImporter;
+use Magento\Framework\App\State;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -20,34 +22,45 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class ImportSimpleProductsCommand extends Command
 {
+    private const OPTION_EXECUTE = 'execute';
     private const OPTION_DRY_RUN = 'dry-run';
     private const OPTION_RESUME = 'resume';
     private const OPTION_BATCH_SIZE = 'batch-size';
 
     public function __construct(
         private readonly ProductImporter $importer,
-        private readonly EccubeConfigProviderInterface $config
+        private readonly EccubeConfigProviderInterface $config,
+        private readonly ExecuteModeResolver $executeModeResolver,
+        private readonly State $appState
     ) {
         parent::__construct('cosmotec:eccube:import:simple-products');
     }
 
     protected function configure(): void
     {
-        $this->setDescription('Import EC-CUBE products into Magento as Simple Products. Run import:product-relations afterwards to link them to their parent Grouped Product.');
-        $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Report what would happen without writing to Magento.');
+        $this->setDescription('Import EC-CUBE products into Magento as Simple Products. Run import:product-relations afterwards to link them to their parent Grouped Product. Dry-run unless --execute is passed.');
+        $this->addOption(self::OPTION_EXECUTE, null, InputOption::VALUE_NONE, 'Actually write to Magento. Without this flag the command only reports what it would do.');
+        $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Explicitly request a dry run (this is also the default).');
         $this->addOption(self::OPTION_RESUME, null, InputOption::VALUE_NONE, 'Resume a previous run; already-imported products are always skipped regardless of this flag.');
         $this->addOption(self::OPTION_BATCH_SIZE, null, InputOption::VALUE_REQUIRED, 'Override the configured batch size.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        try {
+            $this->appState->getAreaCode();
+        } catch (\Throwable) {
+            $this->appState->setAreaCode('adminhtml');
+        }
+
         if (!$this->config->isEnabled()) {
             $output->writeln('<error>The EC-CUBE Migration module is disabled in Stores > Configuration.</error>');
 
             return Command::FAILURE;
         }
 
-        $dryRun = (bool) $input->getOption(self::OPTION_DRY_RUN) || $this->config->isDryRunByDefault();
+        $execute = (bool) $input->getOption(self::OPTION_EXECUTE);
+        $dryRun = $this->executeModeResolver->isDryRun((bool) $input->getOption(self::OPTION_DRY_RUN), $execute);
         $resume = (bool) $input->getOption(self::OPTION_RESUME);
         $batchSizeOption = $input->getOption(self::OPTION_BATCH_SIZE);
         $batchSize = $batchSizeOption !== null ? (int) $batchSizeOption : null;

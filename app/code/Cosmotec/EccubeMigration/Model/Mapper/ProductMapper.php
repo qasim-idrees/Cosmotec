@@ -81,7 +81,14 @@ class ProductMapper implements MapperInterface
 
         $existing = $this->productMapRepository->getBySku($candidate);
 
-        if ($existing !== null && $existing->getEccubeProductId() !== $source->getId()) {
+        // AbstractModel::getData() returns a raw DB string for
+        // getEccubeProductId(), not an int (despite the getter's phpdoc),
+        // so without this cast the strict !== always evaluated true - even
+        // when $existing is this exact product's own prior map row - and
+        // every re-run of an already-imported product would misreport a
+        // SKU "collision" with itself. Same recurring bug class as Round
+        // 37/42/46.
+        if ($existing !== null && (int) $existing->getEccubeProductId() !== $source->getId()) {
             $disambiguated = $candidate . '-' . $source->getId();
             $this->logger->info(sprintf(
                 'Product id=%d: SKU "%s" is already used by EC-CUBE product id=%d, using "%s" instead.',

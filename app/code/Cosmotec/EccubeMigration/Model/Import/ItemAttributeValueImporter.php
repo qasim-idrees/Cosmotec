@@ -23,6 +23,8 @@ use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\Specification\MultiValueSpecificationRegistry;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
 use Magento\Catalog\Api\ProductRepositoryInterface as MagentoProductRepositoryInterface;
+use Magento\Catalog\Model\Product as MagentoProduct;
+use Magento\Eav\Api\AttributeManagementInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 
@@ -52,6 +54,7 @@ class ItemAttributeValueImporter implements ImporterInterface
         private readonly MultiValueSpecificationRegistry $multiValueRegistry,
         private readonly SyncHistoryRepositoryInterface $syncHistoryRepository,
         private readonly MagentoProductRepositoryInterface $magentoProductRepository,
+        private readonly AttributeManagementInterface $attributeManagement,
         private readonly ImportLogger $logger
     ) {
     }
@@ -95,8 +98,11 @@ class ItemAttributeValueImporter implements ImporterInterface
             }
 
             $values = $this->valueRepository->getByItemId($item->getId());
+            $hadPreviousValues = $itemMap->getSpecificationValueHash() !== null;
 
-            if ($values === []) {
+            if ($values === [] && !$hadPreviousValues) {
+                // Never had any source values and still doesn't - nothing
+                // to write and nothing to clear.
                 $result->incrementSkipped();
 
                 return;
@@ -104,7 +110,17 @@ class ItemAttributeValueImporter implements ImporterInterface
 
             $resolution = $this->resolveValues($values);
 
-            if ($resolution['values'] === []) {
+            // $values === [] here (with $hadPreviousValues true) means every
+            // specification was removed at EC-CUBE source - unlike the
+            // "unresolved/pending" case below, this must proceed to persist()
+            // so the stale Magento values get cleared. If resolution is
+            // empty only because an attribute/option isn't imported yet
+            // (pendingCount > 0, $values !== []), the real source values
+            // still exist and must never be wiped just because provisioning
+            // hasn't caught up.
+            $isSourceRemoval = $values === [] && $hadPreviousValues;
+
+            if (!$isSourceRemoval && $resolution['values'] === []) {
                 // Every value's attribute/option isn't imported yet -
                 // retried automatically once AttributeImporter has run.
                 $result->incrementSkipped();
@@ -122,15 +138,21 @@ class ItemAttributeValueImporter implements ImporterInterface
 
             if ($context->isDryRun()) {
                 $result->incrementImported();
-                $this->logger->info(sprintf(
-                    '[DRY RUN] Would write %d attribute value(s) to Grouped Product id=%d (EC-CUBE item id=%d)%s',
-                    count($resolution['values']),
-                    $magentoProductId,
-                    $item->getId(),
-                    $resolution['pendingCount'] > 0
-                        ? sprintf(', %d value(s) pending (attribute not yet created)', $resolution['pendingCount'])
-                        : ''
-                ));
+                $this->logger->info($isSourceRemoval
+                    ? sprintf(
+                        '[DRY RUN] Would CLEAR all eccube_spec_* attribute value(s) from Grouped Product id=%d (EC-CUBE item id=%d) - every specification was removed at source',
+                        $magentoProductId,
+                        $item->getId()
+                    )
+                    : sprintf(
+                        '[DRY RUN] Would write %d attribute value(s) to Grouped Product id=%d (EC-CUBE item id=%d)%s',
+                        count($resolution['values']),
+                        $magentoProductId,
+                        $item->getId(),
+                        $resolution['pendingCount'] > 0
+                            ? sprintf(', %d value(s) pending (attribute not yet created)', $resolution['pendingCount'])
+                            : ''
+                    ));
 
                 return;
             }
@@ -248,8 +270,17 @@ class ItemAttributeValueImporter implements ImporterInterface
      * save() alone, so the caller must never trust a clean save() as proof
      * of a persisted value - only this comparison is.
      *
+     * Also explicitly clears every eccube_spec_* attribute assigned to the
+     * product's attribute set that is NOT in the current resolved value
+     * set. Without this, a specification removed at EC-CUBE source leaves
+     * its old Magento value stale forever - setData() only ever touches
+     * codes present in $values, and Magento's save() does not clear
+     * untouched attributes on its own (confirmed by a live test: cloning a
+     * real product, calling this method with one fewer code than before,
+     * the old value remained in catalog_product_entity_int unchanged).
+     *
      * @param array<string, int|string> $values
-     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value verified
+     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value (including clears) verified
      */
     private function persist(int $magentoProductId, array $values): array
     {
@@ -257,6 +288,17 @@ class ItemAttributeValueImporter implements ImporterInterface
             $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
         } catch (NoSuchEntityException $e) {
             throw new \RuntimeException(sprintf('Magento product %d no longer exists: %s', $magentoProductId, $e->getMessage()), 0, $e);
+        }
+
+        $codesToClear = [];
+
+        foreach ($this->attributeManagement->getAttributes(MagentoProduct::ENTITY, (string) $product->getAttributeSetId()) as $attribute) {
+            $code = $attribute->getAttributeCode();
+
+            if (str_starts_with($code, 'eccube_spec_') && !array_key_exists($code, $values)) {
+                $codesToClear[] = $code;
+                $product->setData($code, null);
+            }
         }
 
         foreach ($values as $code => $value) {
@@ -280,6 +322,14 @@ class ItemAttributeValueImporter implements ImporterInterface
 
             if ((string) $actual !== (string) $expected) {
                 $failed[$code] = ['expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        foreach ($codesToClear as $code) {
+            $actual = $reloaded->getData($code);
+
+            if ($actual !== null) {
+                $failed[$code] = ['expected' => null, 'actual' => $actual];
             }
         }
 

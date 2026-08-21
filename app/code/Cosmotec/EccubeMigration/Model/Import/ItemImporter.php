@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\ItemMapFactory;
 use Cosmotec\EccubeMigration\Model\Mapper\ItemMapper;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyResolver;
 use Cosmotec\EccubeMigration\Model\Validator\ItemValidator;
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
 use Magento\Catalog\Model\Product as MagentoProduct;
@@ -52,6 +53,7 @@ class ItemImporter implements ImporterInterface
         private readonly MagentoProductFactory $magentoProductFactory,
         private readonly CategoryLinkManagementInterface $categoryLinkManagement,
         private readonly StoreManagerInterface $storeManager,
+        private readonly UrlKeyResolver $urlKeyResolver,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -164,7 +166,25 @@ class ItemImporter implements ImporterInterface
 
         if (!$isUpdate) {
             $magentoProduct->setTypeId($mapped->getTypeId());
-            $magentoProduct->setWebsiteIds([(int) $this->storeManager->getWebsite()->getId()]);
+            // StoreManagerInterface::getWebsite() (no arg) resolves the
+            // "current" website from ambient request/area context, which is
+            // unreliable in a plain CLI/cron process - live-confirmed this
+            // session: 19,072 of 28,277 catalog_product_website rows ended
+            // up on website_id=0 ("Admin", not a real storefront website),
+            // making the affected products invisible on the storefront and
+            // preventing URL rewrite generation. getWebsites() has no such
+            // ambient dependency - it always returns the real, non-admin
+            // websites regardless of execution context.
+            $magentoProduct->setWebsiteIds(array_keys($this->storeManager->getWebsites()));
+            // Only ever set at creation, never on update - see
+            // UrlKeyResolver's docblock for the full deterministic
+            // collision-handling algorithm. Computing it only here (not in
+            // the Mapper, which has no Magento-side state) is what makes an
+            // already-imported product's url_key stable even if its
+            // EC-CUBE name is edited later - re-imports never reach this
+            // branch, so a later name change cannot retroactively change
+            // the URL.
+            $magentoProduct->setUrlKey($this->urlKeyResolver->resolveForItem($mapped->getEccubeItemId()));
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);

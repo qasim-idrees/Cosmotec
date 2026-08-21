@@ -24,6 +24,8 @@ use Cosmotec\EccubeMigration\Model\ProductSpecificationValueMapFactory;
 use Cosmotec\EccubeMigration\Model\Specification\MultiValueSpecificationRegistry;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
 use Magento\Catalog\Api\ProductRepositoryInterface as MagentoProductRepositoryInterface;
+use Magento\Catalog\Model\Product as MagentoProduct;
+use Magento\Eav\Api\AttributeManagementInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 
@@ -62,6 +64,7 @@ class ProductAttributeValueImporter implements ImporterInterface
         private readonly MultiValueSpecificationRegistry $multiValueRegistry,
         private readonly SyncHistoryRepositoryInterface $syncHistoryRepository,
         private readonly MagentoProductRepositoryInterface $magentoProductRepository,
+        private readonly AttributeManagementInterface $attributeManagement,
         private readonly ImportLogger $logger
     ) {
     }
@@ -138,8 +141,11 @@ class ProductAttributeValueImporter implements ImporterInterface
             }
 
             $values = $this->valueRepository->getByProductId($eccubeProductId);
+            $hadPreviousValues = $productMap->getSpecificationValueHash() !== null;
 
-            if ($values === []) {
+            if ($values === [] && !$hadPreviousValues) {
+                // Never had any source values and still doesn't - nothing
+                // to write and nothing to clear.
                 $result->incrementSkipped();
 
                 return;
@@ -147,7 +153,18 @@ class ProductAttributeValueImporter implements ImporterInterface
 
             $resolution = $this->resolveValues($values);
 
-            if ($resolution['eavValues'] === [] && $resolution['positional'] === []) {
+            // $values === [] here (with $hadPreviousValues true) means every
+            // specification was removed at EC-CUBE source - unlike the
+            // "unresolved/pending" case below, this must NOT be skipped: the
+            // stale Magento values from the last successful sync need to be
+            // cleared. Distinguishing the two matters - if resolution is
+            // empty only because an attribute isn't created yet
+            // (pendingCount > 0, $values !== []), the real source values
+            // still exist and must never be wiped just because provisioning
+            // hasn't caught up.
+            $isSourceRemoval = $values === [] && $hadPreviousValues;
+
+            if (!$isSourceRemoval && $resolution['eavValues'] === [] && $resolution['positional'] === []) {
                 $result->incrementSkipped();
 
                 return;
@@ -163,16 +180,22 @@ class ProductAttributeValueImporter implements ImporterInterface
 
             if ($context->isDryRun()) {
                 $result->incrementImported();
-                $this->logger->info(sprintf(
-                    '[DRY RUN] Would write %d attribute value(s) (%d multi-value row(s)) to Simple Product id=%d (EC-CUBE product id=%d)%s',
-                    count($resolution['eavValues']),
-                    count($resolution['positional']),
-                    $magentoProductId,
-                    $eccubeProductId,
-                    $resolution['pendingCount'] > 0
-                        ? sprintf(', %d value(s) pending (attribute not yet created)', $resolution['pendingCount'])
-                        : ''
-                ));
+                $this->logger->info($isSourceRemoval
+                    ? sprintf(
+                        '[DRY RUN] Would CLEAR all eccube_spec_* attribute value(s) from Simple Product id=%d (EC-CUBE product id=%d) - every specification was removed at source',
+                        $magentoProductId,
+                        $eccubeProductId
+                    )
+                    : sprintf(
+                        '[DRY RUN] Would write %d attribute value(s) (%d multi-value row(s)) to Simple Product id=%d (EC-CUBE product id=%d)%s',
+                        count($resolution['eavValues']),
+                        count($resolution['positional']),
+                        $magentoProductId,
+                        $eccubeProductId,
+                        $resolution['pendingCount'] > 0
+                            ? sprintf(', %d value(s) pending (attribute not yet created)', $resolution['pendingCount'])
+                            : ''
+                    ));
 
                 return;
             }
@@ -180,7 +203,7 @@ class ProductAttributeValueImporter implements ImporterInterface
             $isUpdate = $productMap->getSpecificationValueHash() !== null;
             $failed = [];
 
-            if ($resolution['eavValues'] !== []) {
+            if ($resolution['eavValues'] !== [] || $isSourceRemoval) {
                 $failed = $this->persistEav($magentoProductId, $resolution['eavValues']);
             }
 
@@ -306,8 +329,14 @@ class ProductAttributeValueImporter implements ImporterInterface
      * select attribute coerced to 0) - neither raises an exception, so a
      * clean save() is never proof of a persisted value on its own.
      *
+     * Also explicitly clears every eccube_spec_* attribute assigned to the
+     * product's attribute set that is NOT in the current resolved value
+     * set - see ItemAttributeValueImporter::persist() for why this is
+     * required (a specification removed at EC-CUBE source otherwise leaves
+     * a permanently stale Magento value, confirmed by a live test).
+     *
      * @param array<string, int|string> $eavValues
-     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value verified
+     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value (including clears) verified
      */
     private function persistEav(int $magentoProductId, array $eavValues): array
     {
@@ -315,6 +344,17 @@ class ProductAttributeValueImporter implements ImporterInterface
             $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
         } catch (NoSuchEntityException $e) {
             throw new \RuntimeException(sprintf('Magento product %d no longer exists: %s', $magentoProductId, $e->getMessage()), 0, $e);
+        }
+
+        $codesToClear = [];
+
+        foreach ($this->attributeManagement->getAttributes(MagentoProduct::ENTITY, (string) $product->getAttributeSetId()) as $attribute) {
+            $code = $attribute->getAttributeCode();
+
+            if (str_starts_with($code, 'eccube_spec_') && !array_key_exists($code, $eavValues)) {
+                $codesToClear[] = $code;
+                $product->setData($code, null);
+            }
         }
 
         foreach ($eavValues as $code => $value) {
@@ -335,6 +375,14 @@ class ProductAttributeValueImporter implements ImporterInterface
 
             if ((string) $actual !== (string) $expected) {
                 $failed[$code] = ['expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        foreach ($codesToClear as $code) {
+            $actual = $reloaded->getData($code);
+
+            if ($actual !== null) {
+                $failed[$code] = ['expected' => null, 'actual' => $actual];
             }
         }
 

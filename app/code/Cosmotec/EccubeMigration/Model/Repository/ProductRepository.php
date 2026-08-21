@@ -65,6 +65,19 @@ class ProductRepository extends AbstractEccubeRepository implements ProductRepos
         return array_map($this->hydrate(...), $rows);
     }
 
+    public function getAllIdsAndNames(): array
+    {
+        $rows = $this->connection->fetchAll('SELECT id, name_en FROM ' . self::TABLE . ' ORDER BY id ASC');
+
+        $result = [];
+
+        foreach ($rows as $row) {
+            $result[(int) $row['id']] = (string) $row['name_en'];
+        }
+
+        return $result;
+    }
+
     /**
      * @param array<string, mixed> $row
      */

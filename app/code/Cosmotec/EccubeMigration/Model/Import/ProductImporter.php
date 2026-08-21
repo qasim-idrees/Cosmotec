@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\ProductMap;
 use Cosmotec\EccubeMigration\Model\ProductMapFactory;
 use Cosmotec\EccubeMigration\Model\Reader\ProductReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyResolver;
 use Cosmotec\EccubeMigration\Model\Validator\ProductValidator;
 use Magento\Catalog\Model\Product as MagentoProduct;
 use Magento\Catalog\Model\Product\Attribute\Source\Status as ProductStatus;
@@ -49,6 +50,7 @@ class ProductImporter implements ImporterInterface
         private readonly MagentoProductRepositoryInterface $magentoProductRepository,
         private readonly MagentoProductFactory $magentoProductFactory,
         private readonly StoreManagerInterface $storeManager,
+        private readonly UrlKeyResolver $urlKeyResolver,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -177,7 +179,15 @@ class ProductImporter implements ImporterInterface
 
         if (!$isUpdate) {
             $magentoProduct->setTypeId(MagentoProductType::TYPE_SIMPLE);
-            $magentoProduct->setWebsiteIds([(int) $this->storeManager->getWebsite()->getId()]);
+            // See ItemImporter::persist() for why getWebsites() is used
+            // instead of getWebsite() - the latter's ambient context
+            // resolution put 19,072 of 28,277 products on website_id=0
+            // ("Admin"), live-confirmed this session.
+            $magentoProduct->setWebsiteIds(array_keys($this->storeManager->getWebsites()));
+            // See ItemImporter::persist() for why this is set only at
+            // creation, and UrlKeyResolver's docblock for the full
+            // deterministic collision-handling algorithm.
+            $magentoProduct->setUrlKey($this->urlKeyResolver->resolveForProduct($mapped->getEccubeProductId()));
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);

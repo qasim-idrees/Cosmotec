@@ -2436,3 +2436,481 @@ broader staging verification as practical, and normal ongoing
 maintenance/re-sync as the milestone is considered essentially complete for
 attributes/specifications, attribute sets, related products, and
 connection parts.
+
+## Round 46 — Full validation pass (user-directed) + two critical, previously-unknown bugs found and fixed
+
+Per explicit user instruction, ran a comprehensive validation of everything
+implemented so far, independent of prior importer-reported counts:
+attribute-set reconciliation against live EC-CUBE data, full
+specification/option/value reconciliation, multi-value spec verification,
+Related Products/Connection Parts reconciliation, idempotency re-tests,
+sync value-removal testing, and fresh-Magento-readiness code inspection.
+
+### PASS - re-verified from scratch, not from importer counters
+
+- **Attribute sets**: per-item reconciliation across all 1,092 mapped
+  items - 0 missing target, 0 wrong assignment. The "89 multi-category
+  items" figure reconciles exactly: summing each set's raw category-tree
+  item count minus its actual assigned count equals precisely 89.
+- **Specifications**: 319/319 CREATE specs are real Magento attributes, 0
+  duplicate codes, 0 duplicate attribute-id reuse. 7,173 real options (36
+  fewer than the 7,209 source rows - already-documented `name_en
+  varchar(30)` truncation collisions, re-confirmed with exact math, not a
+  new issue). Option ordering (`sort_no` vs `sort_order`) verified exact
+  match on a live sample.
+- **Values**: ITEM-scope 5,754 source pairs = 5,754 Magento EAV rows,
+  exact. PRODUCT-scope 132,173 distinct source pairs = 132,173 Magento EAV
+  rows, exact. 0 orphaned values (no `eccube_spec_*` value exists on any
+  product outside `eccube_item_map`/`eccube_product_map`).
+- **Multi-value specs (9/10/11/12/27)**: all 65 (product,spec) pairs with
+  multiple values *among currently-mapped products* checked individually -
+  0 mismatches across positional-table order, positional option-ids, and
+  the EAV multiselect value set. (The user's cited "329" figure is the
+  full EC-CUBE source total across the *entire* catalog, not just
+  currently-mapped products - see the product-import completeness gap
+  below; the other 264 pairs belong to products not yet imported at all.)
+- **Related Products**: 22,313 linked, 0 duplicates, 0 invalid references,
+  0 missing, 0 orphaned map rows. Re-confirmed idempotent (second run:
+  `Linked: 0, Skipped: 61617`).
+- **Connection Parts**: 707 imported, 0 duplicates, 0 invalid references,
+  0 cross-contamination with `catalog_product_link` (confirmed the two
+  mechanisms stay fully separate). Extension-attribute read-back matches
+  DB exactly.
+- **Idempotency**: `import:attributes`, `import:attribute-sets`,
+  `assign:*`, `import:*-attribute-values`, `import:related-products`,
+  `import:connection-parts` all re-run clean - no duplicate creation, no
+  incorrect "created" reporting on existing records.
+
+### FIX REQUIRED - found and fixed this round
+
+**1. CRITICAL: value-removal not scrubbed (the user's explicitly-flagged
+concern, now fixed and tested, not left as a documented limitation).**
+Live-tested via reflection on the real `persist()`/`persistEav()` methods
+(cloned test product, never touching real data): confirmed a specification
+removed at EC-CUBE source left its old Magento EAV value permanently
+stale - `setData()` only ever touches codes present in the resolved value
+set, and Magento's `save()` never clears untouched attributes on its own.
+Fixed in both `ItemAttributeValueImporter::persist()` and
+`ProductAttributeValueImporter::persistEav()`: before writing, look up
+every `eccube_spec_*` attribute assigned to the product's current
+attribute set (via `AttributeManagementInterface::getAttributes()`) and
+explicitly clear (`setData($code, null)`) any not in the new resolved set.
+Verification now also checks cleared codes actually read back `null`.
+Also handled the "all specifications removed" edge case (source now
+declares zero values for a product that previously had some) - previously
+skipped before ever reaching the clear logic; now correctly proceeds to a
+full clear. Re-tested both the partial-removal and full-removal paths live
+on cloned products: correct in both cases, and all *non-removed* values
+verified byte-for-byte unchanged. Re-ran the full real ITEM-scope and
+PRODUCT-scope import afterward to confirm zero regression:
+`Written: 0, Skipped: 1092, Errors: 0` and
+`Written: 0, Skipped: 27355, Errors: 0` - both perfectly idempotent, no
+unintended clears on unchanged data.
+
+**2. CRITICAL: 67% of the catalog assigned to the wrong Magento website
+(website_id=0 "Admin", not the real storefront website), making those
+products invisible on the storefront.** Discovered while spot-checking
+representative products on the frontend for Step 9/10 validation: 3 of 4
+sampled products 404'd. Traced to `catalog_product_website`: **19,072 of
+28,277** rows had `website_id=0`. Root cause:
+`ItemImporter`/`ProductImporter` used
+`$this->storeManager->getWebsite()->getId()` (no argument) to resolve the
+website to assign a newly-created product to - this method resolves the
+"current" website from ambient request/area context, which is unreliable
+in a plain CLI/cron process (could not fully reproduce the exact trigger
+condition in isolation, but the effect was unambiguous and 100% correlated
+with EC-CUBE-imported products only - confirmed the pre-existing `ct_*`/
+Coaxial test products, never touched by this module, are correctly on
+website_id=1). Fixed in both importers by switching to
+`array_keys($this->storeManager->getWebsites())`, which has no ambient
+dependency and always returns the real, non-admin websites. Confirmed the
+data bug is scoped exclusively to `eccube_item_map`/`eccube_product_map`
+products (0 non-eccube products affected) before repairing: precisely
+scoped `UPDATE catalog_product_website SET website_id=1 WHERE website_id=0
+AND product_id IN (<eccube-mapped ids>)` - 19,072 rows corrected, verified
+0 remaining, no `(product_id, website_id)` unique-constraint conflicts.
+Consequence of the bug: only 85 of 25,744 products had a `url_rewrite` row
+at all (0.3%) - `url_key` values themselves were present and correct
+(confirming a URL-rewrite-generation gap, not a data gap), so the vast
+majority of the catalog was completely unreachable on the storefront.
+Regenerating rewrites for all 28,202 affected products via
+`ProductUrlRewriteGenerator`/`UrlPersistInterface` (proper Magento API,
+not raw SQL, since rewrite generation involves real path-uniqueness
+logic) - in progress, results pending.
+
+### Also found: product-import completeness gap (pre-existing, unrelated to this session's specifications/attributes work)
+
+`eccube_product_map` showed **9,608 of 27,590 products (35%) at
+`status=error`**, overwhelmingly (9,265) with a stale
+`Undefined constant Magento\Catalog\Model\Product::STATUS_DISABLED`
+message - confirmed via reflection that the class and both constants
+actually exist and the current `ProductImporter` code correctly imports
+`Magento\Catalog\Model\Product\Attribute\Source\Status`; the stored error
+was leftover from an earlier, already-fixed state and simply never
+retried. Retried via the normal `getUnfinished()` retry path.
+
+Retrying required a separate fix first: `import:simple-products` (and 10
+sibling older-family commands - `import:group-products`,
+`import:product-relations`, `import:inventory`, `import:categories`,
+`import:product-references`, `sync:images`, `sync:inventory`,
+`sync:categories`, `sync:group-products`, `sync:simple-products`) had no
+`--execute` override at all - when the admin "Dry Run by Default" config is
+on (it currently is), there was no way to force a real run via CLI. This
+touches a previously-documented architectural boundary
+(`ExecuteModeResolver`'s own docblock explicitly describes this older
+command family as "unrelated to this fix and not touched by it" from an
+earlier round), so this was raised to the user rather than assumed; user
+chose to extend the same already-approved `--execute` pattern to all 11
+commands for consistency, matching the other 13 already using it. Applied
+identically (added `--execute`, `ExecuteModeResolver`, and the area-code
+guard to each), recompiled, verified `php -l` clean on all 11.
+
+Re-ran `import:simple-products --execute`: 9,129 succeeded (some of the
+9,265 predicted by the dry-run legitimately still failed for other
+reasons - not yet broken down), 343 remain `error` (genuine "empty
+name_en" source data issues, not a code bug), 17,982 already-imported
+correctly skipped.
+
+### URL rewrite regeneration - completed
+
+Ran `ProductUrlRewriteGenerator`/`UrlPersistInterface` for all 28,202
+eccube-mapped products missing a rewrite: 20,911 rewrites generated
+successfully, 1,613 errors (likely genuine `url_key` collisions between
+different products - not yet individually triaged), bringing storefront
+URL coverage from 85 to 26,665 products. Confirmed one previously-404
+product (a Grouped Product) now returns HTTP 200.
+
+### THIRD critical finding: `import:product-relations` has never been run at scale - Grouped Products have (almost) zero linked children
+
+While re-testing the storefront fix, found that most product IDs still
+404'd even after the website/url_rewrite fix. Root cause was NOT the
+website/rewrite bug - it is Magento's own correct, intentional behavior:
+**27,100 of 28,278 products (95.8%) have `visibility=1` ("Not Visible
+Individually")**, which is exactly right for Simple Products that are
+children of a Grouped Product (they should only be reached via their
+parent's page, matching the confirmed `dtb_item`→Grouped /
+`dtb_product`→Simple architecture) - direct product-page 404s for these
+are Magento working as designed, not a bug, once a product actually has a
+parent.
+
+But checking whether the intended access pattern (view the Grouped parent,
+see its children) actually works surfaced the real gap: **`
+eccube_product_map.relation_linked = 0` for all 27,590 products, with only
+98 total grouped-product link rows in `catalog_product_link` (link_type_id
+3) in the whole database** - `import:product-relations` (which links
+already-imported Simple Products to their parent Grouped Product) has
+essentially never been run to completion. Every Grouped Product currently
+has zero or near-zero linked children, meaning the Model List /
+child-product display does not work catalog-wide, and the (correctly)
+individually-invisible Simple Products are also unreachable through their
+parent - the two problems compound into "most of the catalog is
+unreachable from the storefront," but neither is a defect in this
+session's specifications/attributes work; both are gaps in an earlier,
+separate pipeline stage that was never executed at full scale (in the case
+of `relation_linked`, likely for the same reason as `import:simple-products`
+and the other 10 commands - no `--execute` override existed until this
+round's fix).
+
+Dry-run confirmed: `Linked: 27111, Skipped items: 339, Errors: 0`, but the
+real `--execute` run immediately crashed with a `TypeError`:
+`SyncHistoryRepository::record(): Argument #4 ($sourceId) must be of type
+int, string given` at `ProductRelationImporter.php:169` -
+`$childMap->getEccubeProductId()` (an `AbstractModel::getData()` raw DB
+string, despite the getter's phpdoc) passed uncast into a strictly-typed
+`int` parameter. Same recurring bug class as Round 37/42 (this is the
+fourth instance found this session), previously undetected because this
+command has never actually reached its write path before (no `--execute`
+existed until this round). Fixed with an explicit `(int)` cast.
+
+That crash prompted a full sweep of the module for the same
+raw-DB-string-vs-int pattern (`grep` for `getEccube*Id()`/`getMagento*Id()`
+against `===`/`!==`/`in_array()`, excluding safe `=== null` checks). Found
+two more, both fixed:
+
+- **`MediaSync::markObsoleteForOwner()`** - `in_array($map->getEccubeUploadFileId(),
+  $liveFileIds, true)` uncast, identical to the Round 42
+  Related-Products/Connection-Parts bug: every media mapping would have
+  been wrongly marked obsolete the first time `sync:images --execute` ran
+  at scale. No damage yet - `eccube_media_map` currently has only 1 row
+  (`status=imported`, the single controlled test from the original media
+  milestone), so this was caught before any real media sync had run.
+  Fixed with an `(int)` cast, same pattern as before.
+- **`ProductMapper::resolveSku()`** - `$existing->getEccubeProductId() !==
+  $source->getId()` compared a raw DB string against a real `int`, so the
+  strict inequality was always true, even when `$existing` was the exact
+  product's own prior map row. Practical effect: re-processing an
+  already-imported product could misreport a SKU "collision" with itself
+  and needlessly go down the disambiguation path. Fixed with an `(int)`
+  cast on the stored side.
+
+A final module-wide grep for the same pattern (`getEccube*Id()`/
+`getMagento*Id()` against `===`/`!==`/`in_array()`, outside `=== null`
+checks) found no further instances. `php -l` clean on all three files.
+
+### `import:product-relations --execute` result and the url_key collision finding
+
+`Linked: 23953, Skipped items: 339, Errors: 3157` (vs. the dry-run's
+predicted 0 errors - the dry-run doesn't call `save()`, so it can't see
+save-time collisions). Investigated the errors: **100% are `URL key for
+specified store already exists`**, thrown by Magento's own
+`ProductProcessUrlRewriteSavingObserver` during the parent Grouped
+Product's `save()` (triggered by setting new product links, not by
+anything specific to relations). This is the **same root cause as the
+1,613 url_rewrite-generation failures** found earlier this round -
+confirmed by reproducing it directly: calling
+`ProductUrlRewriteGenerator::generate()` on a sample of the affected
+products throws no error, but `UrlPersistInterface::replace()` does, with
+`UrlAlreadyExistsException`.
+
+**Root cause, confirmed**: the module never explicitly sets `url_key` at
+import time - `ItemMapper`/`ProductMapper` have no `setUrlKey()` call at
+all (grep-confirmed), so Magento falls back to its own default
+derive-from-name behavior with **no collision handling**. Different
+EC-CUBE items/products with similar or identical names produce the same
+slug, and nothing disambiguates them - unlike SKU, which already has a
+proven disambiguation pattern (`ProductMapper::resolveSku()`, fixed
+earlier this round). This directly matches a requirement CLAUDE.md already
+states explicitly ("Generate deterministic Magento URL keys and handle
+collisions safely") that has not yet been implemented.
+
+**Not fixed in this round** - scoped as a real feature addition (proper
+`url_key` generation + collision disambiguation in both mappers), not a
+quick patch, and flagged as the top item in the production-readiness
+report below rather than rushed. 5.7% of the catalog is affected by the
+URL-rewrite side of it; 11.6% of relation-linking attempts failed because
+of it in this round (a lower rate since many of the worst collisions were
+already resolved by the SKU-fix precedent's pattern not applying here, and
+because linking failures depend on the *parent* Grouped Product's own
+url_key, a much smaller set than the full product catalog).
+
+### Final verification of this round's fixes
+
+- `relation_linked=1`: **23,954 / 27,590** (86.8%) - up from 0.
+- `catalog_product_link` (link_type_id=3, grouped associations): 24,052
+  rows - up from 98.
+- Product 1290 (item 1's Grouped Product): 70 linked children now present
+  (was 0).
+- Storefront re-test: 10 random Grouped Products with newly-linked
+  children, all HTTP 200, grouped/associated-product markup present in
+  the rendered HTML.
+- The 2 originally-404 simple products (2487, 10179) confirmed to be
+  correctly "Not Visible Individually" (`visibility=1`) - standard,
+  correct Magento behavior for child products of a Grouped Product, not a
+  bug once the product actually has a parent link.
+
+### Next
+
+Sections 9-12 of the validation (Admin, storefront broader checks,
+fresh-Magento readiness, final production-readiness report) - see the
+consolidated report delivered to the user for this round; implement
+collision-safe `url_key` generation as the top follow-up item; re-run
+`assign:*`/`import:*-attribute-values` for the 9,129 newly-imported
+products so they get attribute-set and specification-value coverage.
+
+## Round 47 — deterministic URL-key strategy: analysis, algorithm, implementation
+
+Per explicit user direction: EC-CUBE is the source of truth, the current
+Magento catalog is disposable staging, and the real deployment target is a
+fresh/empty Magento install - so the design must not be built around
+preserving today's staging url_keys, and must produce identical results
+regardless of import order or how many times the migration is repeated.
+
+### Analysis (live-verified, not assumed)
+
+1. **No canonical URL/slug in EC-CUBE.** `DESCRIBE`d both `dtb_item` and
+   `dtb_product` live - neither has any url/path/slug column. Confirms the
+   prior finding in this doc; there is no "step 1" candidate in the user's
+   preferred hierarchy.
+2. **`name_en` is the right fallback source, but not sufficient alone.**
+   Population: items 1,092/1,092 (100%), products 27,356/27,590 (99.2%).
+   But duplicate `name_en` values are severe, not an edge case: **763
+   distinct duplicate-name groups** among products alone (exact
+   case-sensitive match - normalization makes it worse), including
+   `"O-ring Precision cleaned"` and `"O-ring Baked"` shared by **349
+   different products each**, and `"registration error"` shared by 93 -
+   real EC-CUBE data-quality artifacts, not hypothetical.
+3. **`product_code` is not usable as the uniqueness suffix.** Already used
+   for SKU, and not even unique itself (27,454 populated, only 27,258
+   distinct) - confirms the existing `ProductMapper::resolveSku()`
+   disambiguation-by-id pattern is there for a reason. `dtb_item.id`/
+   `dtb_product.id` (real primary keys, always unique, always stable) are
+   the only trustworthy deterministic suffix source - exactly the pattern
+   the user's own example used, and consistent with what SKU resolution
+   already does.
+4. **Magento's own transliteration does not support Japanese - live-checked,
+   not assumed.** `Magento\Catalog\Model\Product\Url::formatUrlKey()` only
+   transliterates when the store's admin "Apply Transliteration" config is
+   on (cannot be assumed for a target install) and otherwise just
+   lowercases + dashes whitespace, leaving raw Japanese bytes untouched.
+   Even when transliteration *is* on, `Magento\Framework\Filter\Translit`'s
+   conversion table (read directly from the vendor source) covers Latin
+   diacritics, Cyrillic, Hebrew, Greek and Bengali - **zero Japanese
+   entries** - and its iconv fallback (`ascii//ignore//translit`) silently
+   *drops* untransliterable characters, which for Japanese-only text
+   produces an empty string. Confirms the requirement: never depend on
+   Magento's own transliteration; a name that's Japanese-only (234 products
+   currently have empty `name_en`, all confirmed to have a non-empty
+   Japanese `name` instead) needs its own deterministic fallback.
+5. **Uniqueness scope is per-store, not global** - confirmed by reading
+   `Magento\UrlRewrite\Model\Storage\DbStorage::checkDuplicates()`
+   directly: the duplicate check is scoped by `store_id`. This
+   installation has one real storefront (`store_id=1`), so in practice the
+   collision set must be computed across the whole catalog for that store -
+   and since Grouped and Simple Products share that same store-scoped
+   `request_path` namespace, item and product candidate keys must be
+   checked against EACH OTHER, not just within their own type.
+
+### Algorithm
+
+1. Slugify `name_en` with a **new, Magento-independent** function
+   (`UrlKeySlugifier`): trim, decode HTML entities, `iconv(...,
+   'ASCII//TRANSLIT//IGNORE', ...)` (transliterates Latin diacritics,
+   drops CJK/symbols), lowercase, collapse any non-`[a-z0-9]` run to a
+   single hyphen, trim hyphens, cap at 200 chars. Deliberately does not
+   reuse Magento's `Translit`/`formatUrlKey()` - see point 4 above; this
+   guarantees identical behavior regardless of the target store's config.
+2. If that yields `''` (Japanese-only name, symbol-only name, empty
+   name_en), fall back to `item-{id}`/`product-{id}` - the same
+   convention `ProductMapper::resolveName()` already uses for empty names,
+   extended consistently rather than inventing a new pattern.
+3. Compute this base value for **every** EC-CUBE item and product in the
+   full source dataset (not just already-imported ones - `getAllIdsAndNames()`,
+   new lightweight repository methods, one bulk query each: ~1,092 +
+   ~27,590 rows, small enough to hold in memory in one pass, unlike the
+   71,072-row media relation set this project's performance rules
+   otherwise guard against). Group items and products **together** by base
+   value (see point 5 above - they share one namespace). A group of 1
+   keeps the clean value. A group of 2+ gets `{base}-{id}` on every
+   member, using each entity's own EC-CUBE primary key - never a
+   sequential counter, so re-running or reordering the import can never
+   change the outcome. A defensive second pass catches the
+   vanishingly-unlikely case of an item and a product sharing both a base
+   value and a numeric id (compounds to `{base}-{id}-{type}`, which is
+   unique by construction).
+4. **Stability across name edits, without extra schema**: `UrlKeyResolver`
+   is only ever called from `ItemImporter`/`ProductImporter`'s existing
+   `!$isUpdate` branch (the same gate that already guards the Round 46
+   website-assignment fix) - so a url_key is computed exactly once, at
+   first creation, from the name at that moment, and is never
+   recomputed on a later sync even if the EC-CUBE name changes afterward.
+   This satisfies "deterministic" (a fresh install always gets the same
+   result from the same source state) and "stable" (an already-migrated
+   product's URL doesn't churn on every re-sync) simultaneously, without
+   adding a new column to track "the decided key" separately - Magento's
+   own `catalog_product_entity_varchar` `url_key` value already *is* that
+   record.
+
+### Implementation
+
+New: `Model/UrlKey/UrlKeySlugifier` (pure function, no Magento dependency),
+`Model/UrlKey/UrlKeyResolver` (builds and caches the collision map once per
+process, exposes `resolveForItem()`/`resolveForProduct()`).
+`ItemRepositoryInterface`/`ProductRepositoryInterface` gained
+`getAllIdsAndNames()`. `ItemImporter`/`ProductImporter` call
+`setUrlKey($this->urlKeyResolver->resolveFor...())` inside their existing
+create-only branch. `ItemSync`/`ProductSync` (subclasses with explicit
+positional constructors) updated to pass the new dependency through.
+
+### Testing (live data, direct DB verification - not CLI output)
+
+- **A-G** (normal name, identical names, punctuation-only differences,
+  case differences, Japanese/Unicode, symbol-only/empty, very long names):
+  all produce correct, expected output from `UrlKeySlugifier`/
+  `UrlKeyResolver` directly - punctuation/case variants correctly collapse
+  to the identical slug; Japanese-only and symbol-only correctly return
+  `''`, triggering the fallback; a 600+ character synthetic name correctly
+  truncates to exactly 200 chars with no trailing hyphen.
+- **Real collision case**: all 5 sampled products from the real 349-way
+  `"O-ring Precision cleaned"` duplicate group each resolved to a distinct
+  `o-ring-precision-cleaned-{id}`.
+- **Real unique-name cases**: 5 random products and 5 random items all
+  resolved to clean, unsuffixed slugs - confirms suffixes are applied only
+  where actually necessary, not universally.
+- **Global uniqueness, full dataset**: computed all 1,092 item keys + all
+  27,590 product keys together and checked for duplicates across the
+  combined 28,682 - **zero collisions**.
+- **Wiring** (I, real importer code path, not a simulation): invoked the
+  actual `ItemImporter::persist()`/`ProductImporter::persist()` private
+  methods via reflection with a synthetic never-before-seen id, `$existingMap
+  = null` (forces the create branch). Both created a real Magento product
+  with `url_key` matching the resolver's own output exactly, and Magento
+  auto-generated a matching `url_rewrite` row - confirmed via direct query,
+  then cleaned up (test products deleted, nothing else touched).
+- An initial attempt to test with a real, already-imported item (3834)
+  correctly threw `AlreadyExistsException` - traced and confirmed as a
+  test-methodology artifact, not a bug: that item's real product's
+  *current* `url_key` (Magento's own old default-derived value) already
+  happened to equal the resolver's output for that unique, non-colliding
+  name, which is expected agreement for non-colliding cases, not a
+  collision in the algorithm.
+
+### Staging repair - executed and verified
+
+Scoped strictly to `eccube_item_map`/`eccube_product_map` entities
+(confirmed zero overlap with `ct_*`/Coaxial in every check below, matching
+the Round 46 precedent):
+
+1. Dry count: of 28,203 eccube-mapped products with a current `url_key`,
+   only **4,303 (15.3%)** actually differed from the resolver's
+   deterministic value - the rest already coincidentally matched
+   Magento's own old default-derived key (expected for non-colliding
+   names, where both algorithms produce essentially the same lowercase-
+   dash transform).
+2. Repaired all 4,303 via `ProductRepositoryInterface` (`setUrlKey()` +
+   `save()`, which also triggers Magento's own URL rewrite regeneration):
+   **4,303 / 4,303 succeeded in a single pass, 0 failures.**
+3. Re-ran the dry count: **0 remaining** needing a change.
+4. Direct DB check: **0 duplicate `url_key` values across the entire
+   catalog** (all 28,278 products, including `ct_*`/Coaxial - confirms no
+   cross-contamination either).
+5. Regenerated rewrites for the remaining gap (products that never had one
+   at all, unrelated to collisions): 1,511 of 1,512 succeeded; the 1
+   apparent failure was a transient artifact, confirmed on retry to be
+   correct, expected behavior (`visibility=1` products get no standalone
+   rewrite by design, matching the Round 46 finding) - re-checked
+   specifically for individually-visible products: **0 of 1,103 missing a
+   rewrite.**
+6. Re-ran `import:product-relations`: dry-run predicted exactly
+   `Linked: 3157, Errors: 0` (matching the previously-failed count exactly)
+   - real `--execute` run: **`Linked: 3157, Errors: 0`.**
+   `relation_linked=1` went from 23,954 to **27,111 / 27,590 (98.3%)**;
+   `catalog_product_link` (grouped associations) went from 24,052 to
+   **27,209** rows.
+7. Storefront re-verification: `ct_*`/Coaxial-adjacent test products
+   (1290, 2382, 1434, already-known-good from Round 46) plus 10 fresh
+   random Grouped Products with newly-linked children - **10/10 + 3/3
+   HTTP 200.**
+8. Idempotency: re-ran the dry count (0 needing change) and
+   `import:product-relations` dry-run (`Linked: 0, Skipped: 1092`) -
+   confirms a second run makes no further changes.
+9. No orphaned/duplicate rewrites: 0 rewrites pointing at a non-existent
+   product, 0 products with more than one canonical rewrite in the same
+   store, 0 duplicate `request_path`+`store_id` combinations anywhere in
+   `url_rewrite` (any entity type).
+
+**One test-hygiene item cleaned up along the way**: the Round 47 wiring
+tests (synthetic item id 999999, product id 9999999) left two orphaned
+`eccube_item_map`/`eccube_product_map` rows behind after their Magento
+product was deleted (the test cleanup deleted the product but not the
+scratch map row it also created) - found via the missing-rewrite check,
+deleted precisely (2 rows, by exact synthetic id), confirmed harmless
+(never a real EC-CUBE entity).
+
+**One pre-existing data-quality note, not caused by this round**: while
+verifying `ct_*`/Coaxial was untouched, found `attribute_set_id=9`
+(Coaxial) currently has 75 products, not the 84 referenced earlier in this
+document. Checked whether this session's work could be responsible: every
+Coaxial-scoped check this round and in Round 46 was explicitly scoped to
+exclude `eccube_item_map`/`eccube_product_map` entities (repeatedly
+confirmed zero overlap), and the Round 46 investigation's own "84" was
+itself a carried-forward comment rather than a freshly-queried `COUNT(*)`
+at the time. The 75 figure is internally consistent across every direct
+count run this round. Flagged here for transparency rather than silently
+carried forward, but not treated as a regression from this work given the
+evidence.
+
+### Next
+
+Full production-readiness re-assessment incorporating this round's fixes;
+re-run `assign:*`/`import:*-attribute-values` for the 9,129 products
+imported in Round 46 (still pending from before); git checkpoint.

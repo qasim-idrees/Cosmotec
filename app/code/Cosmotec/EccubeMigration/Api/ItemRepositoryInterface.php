@@ -47,4 +47,17 @@ interface ItemRepositoryInterface
      * @throws EccubeConnectionException
      */
     public function getCategoryIdsByItemId(int $itemId): array;
+
+    /**
+     * Every item id and its name_en, across the WHOLE table - not paginated
+     * by design. Used only to build the deterministic URL-key collision map
+     * (UrlKeyResolver), which must see every item that could ever produce a
+     * given slug, regardless of import batch/order. ~1,092 rows - safe to
+     * load in one pass, unlike the 71,072-row media relation set this
+     * project's performance rules otherwise guard against.
+     *
+     * @return array<int, string> itemId => name_en (possibly empty string)
+     * @throws EccubeConnectionException
+     */
+    public function getAllIdsAndNames(): array;
 }

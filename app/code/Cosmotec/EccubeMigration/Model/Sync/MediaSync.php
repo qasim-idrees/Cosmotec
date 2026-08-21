@@ -114,7 +114,16 @@ class MediaSync implements ImporterInterface
         );
 
         foreach ($existingMaps as $map) {
-            if (in_array($map->getEccubeUploadFileId(), $liveFileIds, true)) {
+            // AbstractModel::getData() returns a raw DB string, not an int
+            // (despite the getter's phpdoc) - without this cast, every row
+            // would fail the strict in_array() check against $liveFileIds
+            // (real ints) and be wrongly marked obsolete even though its
+            // source file still exists. Same bug class fixed in Round 42
+            // for RelatedProductImporter/ConnectionPartImporter/
+            // ProductReferenceImporter - found here too via a broader
+            // search prompted by the Round 46 ProductRelationImporter
+            // TypeError.
+            if (in_array((int) $map->getEccubeUploadFileId(), $liveFileIds, true)) {
                 continue;
             }
 
