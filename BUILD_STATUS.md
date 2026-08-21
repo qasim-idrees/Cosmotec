@@ -1583,3 +1583,80 @@ reporting fix (Round 28) are both complete and verified. Dry-run output
 can now be trusted ahead of the full 319-attribute run. No unrelated
 files changed. Nothing committed or pushed - awaiting the Git checkpoint
 before the full import.
+
+---
+
+## Round 29 — full 319-attribute/7,173-option import EXECUTED and verified
+
+Git checkpoint for Rounds 27-28 was committed by the user directly
+(`89c9f99 "Implement specification attributes migration - 2"`) before
+this round began.
+
+### Full dry-run, then full execute
+
+`import:attributes` (no filter): dry-run reported
+`Created: 316, Updated: 3, Skipped: 41, Errors: 0` (the 3 already
+matching the Round 27 controlled test) - confirmed zero writes, then
+executed for real. **Result: `Created: 316, Updated: 3, Skipped: 41,
+Errors: 0` - identical to the dry-run projection.** Runtime: 5m30s for
+360 specifications / 7,173 real options.
+
+### Full verification (live, this round)
+
+| Check | Result |
+|---|---|
+| `eccube_spec_*` attribute count | 319 (matches CREATE classification exactly) |
+| Duplicate attribute codes | none |
+| `eccube_specification_map` | 360 rows total: 316 imported + 3 updated + 41 skipped - matches exactly, no duplicates |
+| `eccube_specification_option_map` | 7,209 rows, no duplicate source rows (`eccube_specification_class_id` unique per row) |
+| Real Magento options for `eccube_spec_*` | 7,173 (all real, zero placeholder/empty-label rows - `AttributeImporter` never requests one) |
+| Orphaned option-map rows (pointing at a non-existent Magento option) | **zero** - every map row resolves to a real option |
+| `ct_*` | still exactly 17, untouched |
+| EC-CUBE source | unchanged - `analyze:attributes` re-run identical (360/7,364/319/14/23/4) |
+| Errors recorded anywhere in `eccube_specification_map` | zero |
+| Idempotency | re-ran the same full dry-run: `Created: 0, Updated: 319, Skipped: 41` - exact, correct idempotent result |
+
+### New finding this round - real, non-blocking, flagged for the
+### PRODUCT-scope values phase
+
+7,209 option-map rows resolve to only 7,173 distinct Magento options -
+36 groups (up to 7 source rows each) share a single Magento option.
+Investigated to ground truth rather than assumed a bug: this is a
+**genuine EC-CUBE source limitation**, not a migration defect.
+`dtb_specification_class.name_en` is `varchar(30)` at the source schema
+level; multiple distinct option rows within the same specification
+(different `sort_no`, different actual real-world values) are truncated
+to an *identical* 30-byte English string, so `AttributeImporter`'s
+existing label-based duplicate-option guard (`addOption()`'s
+`in_array($label, $existingLabels)` check, working exactly as designed)
+correctly treats them as "the same option" and reuses one Magento
+option id for all of them.
+
+Confirmed concretely (spec 62, source ids 5892-5895): English
+`name_en` for all four is identically truncated to `"Large caliber:120
+___Small cal"` (30 bytes, hits the column limit exactly), while the
+**Japanese `name` column is not truncated and contains the real,
+distinguishing values**: `大口径:120＿小口径:60`, `...70`, `...85`,
+`...100` (small-diameter 60/70/85/100mm - a real, meaningful
+difference). Per the project's own English-first-with-Japanese-fallback
+rule, this is a case where English is *present* but *lossy*, not a case
+already covered by "fallback when English is unavailable."
+
+**Why this doesn't block the current phase**: every source
+`specification_class_id` is still individually and correctly recorded
+in `eccube_specification_option_map` (zero data loss at the mapping
+layer, zero orphans, zero corruption) - the merge only affects the
+Magento option *label/identity* for ~36 groups out of 7,364. **Why it
+matters for what's next**: once PRODUCT-scope values are imported,
+products that should show visibly different values (e.g. small-diameter
+60mm vs 70mm) will both resolve to the same merged, ambiguous option
+label. Flagged explicitly to revisit before/during the PRODUCT-scope
+values phase - not fixed here, since doing so would mean guessing a
+disambiguation scheme (e.g. falling back to the Japanese label, or
+appending the source id) without a confirmed design decision, which
+would violate the project's "never invent translations" rule.
+
+### Status
+
+Attributes + Options: **complete, executed, and fully verified** against
+real production-scale data. Next: Attribute Sets.
