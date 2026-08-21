@@ -1983,7 +1983,36 @@ back to `NULL` afterward, so this test item re-enters the pool of 878 rows
 needing the Step 6 reset + Step 7 real importer like every other one -
 nothing was left in a special-cased state.
 
+## Round 35 — Step 6: precise reset of the false-success `eccube_item_map` rows
+
+Not a blind truncate. For every `eccube_item_map` row with
+`specification_value_hash IS NOT NULL` (877 remaining after the Round 34
+test already reset item 1), directly checked whether its mapped Magento
+product carries **any** `eccube_spec_*` value in
+`catalog_product_entity_int` or `catalog_product_entity_varchar`. Result:
+**0 of 877 had real data** - every single one matched the Round 31
+false-success signature exactly, none were genuine successes that needed to
+be preserved. Reset scoped to that precise id list only:
+`specification_value_hash` and `specification_values_synced_at` set to
+`NULL` for those 877 rows via `WHERE eccube_item_id IN (...)`, not a
+table-wide statement.
+
+Verified after the reset:
+- `eccube_item_map` rows with hash set: **0**
+- `eccube_item_map` total row count: **1,092** (unchanged - no rows added or
+  removed, only the two sync columns touched)
+- distinct products with any `eccube_spec_*` EAV value: **0** (matches the
+  pre-reset state - nothing was fabricated or lost, because there was
+  nothing there to begin with)
+- `ct_*` attribute count: **17** (untouched)
+
+All 1,092 `eccube_item_map` rows are now in a clean, honest state ready for
+the real assignment importer (Step 7) followed by a genuine retry of
+`import:item-attribute-values`.
+
 ### Next
 
-Step 6: precisely identify and reset the remaining false-success
-`eccube_item_map` rows (878 total, one already reset as part of this test).
+Step 7: implement the real product attribute-set assignment importer using
+`AttributeSetResolver`, restricted to `eccube_item_map`/`eccube_product_map`
+rows only (never the `ct_*`/Coaxial products, which are confirmed to be
+outside migration scope entirely - see Round 33).
