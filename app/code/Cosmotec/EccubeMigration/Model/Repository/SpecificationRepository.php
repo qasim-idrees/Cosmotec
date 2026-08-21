@@ -218,6 +218,45 @@ class SpecificationRepository extends AbstractEccubeRepository implements Specif
         );
     }
 
+    public function getUncategorizedItemIds(): array
+    {
+        $rows = $this->connection->fetchAll(
+            'SELECT DISTINCT isp.item_id
+             FROM dtb_item_specification isp
+             LEFT JOIN dtb_category_item ci ON ci.item_id = isp.item_id
+             WHERE ci.item_id IS NULL
+             ORDER BY isp.item_id ASC'
+        );
+
+        return array_map(static fn (array $row): int => (int) $row['item_id'], $rows);
+    }
+
+    public function getSpecificationUsageForItems(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return ['item_count' => 0, 'item_scope_specification_ids' => []];
+        }
+
+        $in = implode(',', array_map('intval', $itemIds));
+
+        $itemCount = (int) $this->connection->fetchScalar(
+            'SELECT COUNT(DISTINCT isp.item_id) FROM dtb_item_specification isp WHERE isp.item_id IN (' . $in . ')'
+        );
+
+        $rows = $this->connection->fetchAll(
+            'SELECT DISTINCT isp.specification_id
+             FROM dtb_item_specification isp
+             WHERE isp.item_id IN (' . $in . ')
+               AND isp.type = ' . self::TYPE_ITEM . '
+               AND isp.specification_id IS NOT NULL'
+        );
+
+        return [
+            'item_count' => $itemCount,
+            'item_scope_specification_ids' => array_map(static fn (array $row): int => (int) $row['specification_id'], $rows),
+        ];
+    }
+
     public function getItemsInMultipleTopLevelCategories(array $topLevelDescendantMap): array
     {
         $itemTopLevels = [];

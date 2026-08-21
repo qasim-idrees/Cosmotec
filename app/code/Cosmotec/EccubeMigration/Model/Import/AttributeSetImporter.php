@@ -19,6 +19,7 @@ use Cosmotec\EccubeMigration\Logger\ImportLogger;
 use Cosmotec\EccubeMigration\Model\AttributeSetMap;
 use Cosmotec\EccubeMigration\Model\AttributeSetMapFactory;
 use Cosmotec\EccubeMigration\Model\Config\DefaultAttributeSetProvider;
+use Cosmotec\EccubeMigration\Model\Mapper\AttributeSetResolver;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
 use Magento\Catalog\Model\Product as MagentoProduct;
 use Magento\Eav\Api\AttributeGroupRepositoryInterface;
@@ -88,6 +89,21 @@ class AttributeSetImporter implements ImporterInterface
             $this->importOne($topLevel, $context, $result);
         }
 
+        // The 9th set: a fallback for items with specification values but
+        // zero dtb_category_item rows (Round 32/45, database-confirmed),
+        // which can never resolve through the category-based path above.
+        // Not a real EC-CUBE category - see AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID.
+        $this->importOne(
+            [
+                'id' => AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID,
+                'name' => 'Uncategorized',
+                'name_en' => 'Uncategorized',
+                'sort_no' => PHP_INT_MAX,
+            ],
+            $context,
+            $result
+        );
+
         $this->logger->info(sprintf(
             'AttributeSetImporter run %s complete: imported=%d updated=%d skipped=%d errors=%d',
             $context->getRunId(),
@@ -110,12 +126,20 @@ class AttributeSetImporter implements ImporterInterface
         $setName = $topLevel['name_en'] !== '' ? $topLevel['name_en'] : $topLevel['name'];
 
         try {
-            $descendants = $this->specificationRepository->getDescendantCategoryIds($topLevel['id']);
-            $usage = $this->specificationRepository->getSpecificationUsageForCategories($descendants);
-            $specIds = array_values(array_unique(array_merge(
-                $usage['item_scope_specification_ids'],
-                $usage['product_scope_specification_ids']
-            )));
+            if ($topLevel['id'] === AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID) {
+                $usage = $this->specificationRepository->getSpecificationUsageForItems(
+                    $this->specificationRepository->getUncategorizedItemIds()
+                );
+                $specIds = $usage['item_scope_specification_ids'];
+            } else {
+                $descendants = $this->specificationRepository->getDescendantCategoryIds($topLevel['id']);
+                $usage = $this->specificationRepository->getSpecificationUsageForCategories($descendants);
+                $specIds = array_values(array_unique(array_merge(
+                    $usage['item_scope_specification_ids'],
+                    $usage['product_scope_specification_ids']
+                )));
+            }
+
             sort($specIds);
 
             // Only specifications that actually became Magento attributes

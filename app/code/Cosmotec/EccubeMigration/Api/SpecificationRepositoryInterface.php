@@ -94,4 +94,28 @@ interface SpecificationRepositoryInterface
      * @throws EccubeConnectionException
      */
     public function getItemCategoryOrdering(int $itemId): array;
+
+    /**
+     * Items that carry at least one specification value but have zero
+     * dtb_category_item rows - no top-level category tree can ever resolve
+     * for them (confirmed live, Round 32: 36 such items, database-verified,
+     * not inferred). Feeds the "Uncategorized" fallback attribute set.
+     *
+     * @return int[]
+     * @throws EccubeConnectionException
+     */
+    public function getUncategorizedItemIds(): array;
+
+    /**
+     * Same shape as getSpecificationUsageForCategories(), but resolved
+     * directly from a list of item ids rather than a category subtree -
+     * for items with no category at all, where a category-based query
+     * would always return nothing. Product-scope is intentionally omitted:
+     * uncategorized items have no Simple Product children (confirmed live).
+     *
+     * @param int[] $itemIds
+     * @return array{item_count: int, item_scope_specification_ids: int[]}
+     * @throws EccubeConnectionException
+     */
+    public function getSpecificationUsageForItems(array $itemIds): array;
 }

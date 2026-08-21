@@ -122,22 +122,12 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
                 return;
             }
 
-            $topLevelCategoryId = $this->attributeSetResolver->resolveTopLevelCategoryId($eccubeItemId);
-
-            if ($topLevelCategoryId === null) {
-                $result->incrementNeedsReview();
-                $this->recordHistory(
-                    $context,
-                    $eccubeProductId,
-                    $magentoProductId,
-                    SyncHistory::STATUS_SKIPPED,
-                    sprintf('Owning item %d has no EC-CUBE top-level category chain resolved; needs an explicit fallback bucket.', $eccubeItemId),
-                    $startTime,
-                    $startMemory
-                );
-
-                return;
-            }
+            // See ItemAttributeSetAssignmentImporter::assignOne() - an
+            // owning item with no category chain routes to the dedicated
+            // "Uncategorized" set (Round 45 decision) rather than being
+            // left unresolved.
+            $topLevelCategoryId = $this->attributeSetResolver->resolveTopLevelCategoryId($eccubeItemId)
+                ?? AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID;
 
             $setMap = $this->attributeSetMapRepository->getByTopLevelCategoryId($topLevelCategoryId);
             $rawTargetSetId = $setMap?->getMagentoAttributeSetId();

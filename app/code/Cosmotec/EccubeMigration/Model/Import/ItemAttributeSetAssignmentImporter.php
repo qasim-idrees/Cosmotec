@@ -115,26 +115,12 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
         $magentoProductId = (int) $itemMap->getMagentoProductId();
 
         try {
-            $topLevelCategoryId = $this->attributeSetResolver->resolveTopLevelCategoryId($eccubeItemId);
-
-            if ($topLevelCategoryId === null) {
-                // Genuinely uncategorized in EC-CUBE (confirmed in the
-                // Round 32 report: 36 such items, all with zero
-                // dtb_category_item rows) - a real data condition, not a
-                // bug, so it is tracked separately from errors.
-                $result->incrementNeedsReview();
-                $this->recordHistory(
-                    $context,
-                    $eccubeItemId,
-                    $magentoProductId,
-                    SyncHistory::STATUS_SKIPPED,
-                    'No EC-CUBE top-level category chain resolved for this item; needs an explicit fallback bucket before it can be assigned.',
-                    $startTime,
-                    $startMemory
-                );
-
-                return;
-            }
+            // Genuinely uncategorized in EC-CUBE (confirmed in the Round 32
+            // report: 36 such items, all with zero dtb_category_item rows)
+            // route to the dedicated "Uncategorized" set (Round 45 decision)
+            // rather than being left unresolved.
+            $topLevelCategoryId = $this->attributeSetResolver->resolveTopLevelCategoryId($eccubeItemId)
+                ?? AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID;
 
             $setMap = $this->attributeSetMapRepository->getByTopLevelCategoryId($topLevelCategoryId);
             $rawTargetSetId = $setMap?->getMagentoAttributeSetId();

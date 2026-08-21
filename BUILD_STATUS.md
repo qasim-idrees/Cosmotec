@@ -2368,10 +2368,71 @@ route them to "Others" (closest semantic fit), (b) create a dedicated
 specification-value import indefinitely. This needs the user's decision,
 not an inferred default.
 
+## Round 44 — "Uncategorized" attribute set implemented (user decision: new dedicated 9th set)
+
+User's choice: create a dedicated 9th migration attribute set for the 36
+uncategorized items rather than routing them into "Others" or leaving them
+excluded.
+
+Implementation, following the existing architecture rather than a one-off
+script:
+
+- `SpecificationRepositoryInterface`: two new read-only methods -
+  `getUncategorizedItemIds()` (items with a specification value but zero
+  `dtb_category_item` rows - LEFT JOIN/IS NULL, the same condition already
+  used to compute the Round 32 "36" figure, now a reusable query instead of
+  a one-off script) and `getSpecificationUsageForItems(array $itemIds)`
+  (same shape as `getSpecificationUsageForCategories()` but item-id-driven,
+  ITEM-scope only since these items are confirmed to have zero Simple
+  Product children).
+- `AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID` (999,999,999) - a
+  synthetic, obviously-non-real top-level "category" id. Chosen as a large
+  positive value rather than -1 because
+  `eccube_attribute_set_map.eccube_top_level_category_id` is `unsigned
+  int`; avoided a schema change for a purely synthetic bookkeeping id, same
+  reasoning as the Round 37 `operation` column fix.
+  `resolveTopLevelCategoryId()` itself is unchanged and still returns
+  `null` for "no real top-level tree" - callers substitute the sentinel
+  themselves, keeping the resolver's own contract honest.
+- `AttributeSetImporter::import()`: after the 8 real category-derived sets,
+  processes one synthetic 9th entry (`id=999999999, name=Uncategorized`),
+  branching internally to the new item-based usage query instead of the
+  category-based one.
+- `ItemAttributeSetAssignmentImporter`/`ProductAttributeSetAssignmentImporter`:
+  a `null` category resolution now falls back to the sentinel (routing to
+  Uncategorized) instead of `needsReview`.
+
+### Executed and verified
+
+1. `import:attribute-sets --execute`: dry-run correctly previewed `Created:
+   1` (Uncategorized, 23 attributes - matches the Round 32 finding
+   exactly), 8 skipped (unchanged). Real execute created Magento
+   `attribute_set_id=18`, confirmed via direct query: 23 `eccube_spec_*`
+   attributes assigned, `eccube_attribute_set_map` row correct
+   (`eccube_top_level_category_id=999999999`, `specification_count=23`).
+2. `assign:item-attribute-sets --execute`: `Assigned: 36, Skipped: 1056,
+   Errors: 0, Needs review: 0` - exactly the 36 items, zero left
+   unresolved.
+3. `import:item-attribute-values --execute`: **`Written: 36, Errors: 0`** -
+   every one of the 36 items that previously failed verification now
+   succeeds for real.
+
+Final state, verified directly (not from CLI output alone): all 36
+products confirmed on `attribute_set_id=18`; `eccube_item_map` hash-set
+count is **878 of 878** (842 from Round 39 + these 36 - full coverage,
+zero remaining errors); distinct products among the 36 with real
+`eccube_spec_*` EAV data: 36 of 36. `ct_*` attribute count still 17,
+Coaxial-set product count still 84.
+
+**The ITEM-scope specification-value milestone is now fully complete: all
+1,092 mapped Grouped Products have a correctly-resolved attribute set and
+verified real specification data, zero outstanding errors.**
+
 ### Next
 
-Awaiting the user's fallback-bucket decision for the 36 items; everything
-else in the milestone (attributes, options, sets, ITEM values, PRODUCT
-values, multi-value positional storage, Related Products, Connection
-Parts, and their Sync counterparts) is implemented, executed at full
-scale, and verified.
+PRODUCT-scope was already at 0 needs-review (no Simple Product children
+under the 36 items), so no corresponding action needed there. Remaining:
+broader staging verification as practical, and normal ongoing
+maintenance/re-sync as the milestone is considered essentially complete for
+attributes/specifications, attribute sets, related products, and
+connection parts.

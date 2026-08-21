@@ -40,6 +40,22 @@ use Cosmotec\EccubeMigration\Api\SpecificationRepositoryInterface;
  */
 class AttributeSetResolver
 {
+    /**
+     * Synthetic top-level "category" id for the confirmed-uncategorized
+     * items (Round 32/45: zero dtb_category_item rows, so no real EC-CUBE
+     * category id could ever collide with this). Not a real
+     * dtb_category.id - callers that need the "Uncategorized" fallback set
+     * substitute this in place of a null resolveTopLevelCategoryId()
+     * result; resolveTopLevelCategoryId() itself never returns it, so its
+     * contract (null = no real top-level tree found) stays honest.
+     *
+     * Deliberately a large positive value, not -1: eccube_attribute_set_map.
+     * eccube_top_level_category_id is unsigned int (avoiding a schema
+     * change for a purely synthetic bookkeeping id), and real EC-CUBE
+     * category ids observed in production are small (single/triple digits).
+     */
+    public const UNCATEGORIZED_TOP_LEVEL_ID = 999999999;
+
     /** @var array<int, int[]>|null topLevelCategoryId => descendant category ids, built once and cached */
     private ?array $descendantMap = null;
 
