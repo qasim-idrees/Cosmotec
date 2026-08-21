@@ -1750,3 +1750,192 @@ themselves remain off-limits regardless.
 
 Area-code fix: verified working. Attribute-set assignment gap: root
 cause confirmed, fix strategy set by the user, implementation next.
+
+## Round 32 — AttributeSetResolver investigation report (live EC-CUBE data)
+
+Per user direction: this Magento instance is staging/local-dev only; the real
+deployment target is an empty Magento catalog, so the *existing* Magento
+Default/Coaxial assignment is test data, not the migration source of truth.
+EC-CUBE category data is the source of truth for attribute-set assignment.
+All numbers below were produced by running `AttributeSetResolver` and
+`SpecificationRepository` directly against the live EC-CUBE database (script:
+scratchpad `resolver_report.php` / `unresolved_investigate.php`), not from
+prior documentation.
+
+### 1. The 8 target migration attribute sets (source top-level category → Magento set)
+
+| eccube category_id | sort_no | Set name | magento_attribute_set_id |
+|---|---|---|---|
+| 1 | 1 | Feedthrough | 10 |
+| 4 | 7 | Vacuum Component | 11 |
+| 2 | 633 | Isolator | 12 |
+| 5 | 697 | Vacuum Valve | 13 |
+| 383 | 880 | Motion Feedthrough | 14 |
+| 7 | 901 | Others | 15 |
+| 241 | 902 | Limited | 16 |
+| 3 | 907 | Viewport | 17 |
+
+All 8 sets already exist in `eccube_attribute_set_map` from the Round-30
+`AttributeSetImporter` execution; no gaps.
+
+### 2/3/4. Items / products / specs mapped per set, ITEM vs PRODUCT usage
+
+| Set | items | products | specs total | item-scope specs | product-scope specs |
+|---|---|---|---|---|---|
+| Feedthrough | 277 | 5,395 | 116 | 52 | 95 |
+| Vacuum Component | 696 | 21,604 | 193 | 82 | 144 |
+| Isolator | 12 | 180 | 31 | 9 | 24 |
+| Vacuum Valve | 21 | 111 | 66 | 38 | 32 |
+| Motion Feedthrough | 2 | 41 | 23 | 5 | 18 |
+| Others | 60 | 240 | 84 | 38 | 68 |
+| Limited | 6 | 105 | 28 | 19 | 10 |
+| Viewport | 72 | 437 | 76 | 37 | 51 |
+
+Item/product counts are per top-level tree (an item can appear in more than
+one tree — see multi-category section below), and spec counts overlap
+between sets because many specifications are reused across families.
+
+### 5/6. The 89 multi-category items — exact resolution
+
+89 items belong to more than one of the 8 top-level trees simultaneously.
+Running the real `AttributeSetResolver::resolveTopLevelCategoryId()` (sort_no
+DESC over `dtb_category_item`, lowest `category_id` as tiebreak — the
+standing approved convention) against all 89 resolves every one of them
+(0 unresolved in this subset):
+
+- Viewport: 56 items
+- Vacuum Component: 20 items
+- Vacuum Valve: 11 items
+- Feedthrough: 2 items
+
+**Important finding on tie quality**: of the 89, **39 (44%)** have a genuine
+`sort_no` tie (both `0`) between the winning categories in the two competing
+top-level trees — e.g. item 4089 ties `{Feedthrough: 0, Others: 0}`, item 206
+ties `{Viewport: 0, Vacuum Component: 0}`. For these 39, `sort_no` carries no
+real signal and the resolution is determined entirely by the
+lowest-category_id tiebreak convention, not by any EC-CUBE-authored ordering.
+This is not a new architectural conflict — it's the expected consequence of
+the tie-break rule the user already approved as the standing default — but it
+is documented here because it means ~44% of multi-category resolutions are
+convention-based rather than data-driven, which should be visible if these
+assignments are ever manually reviewed.
+
+### 7. Unresolved items (no chain to any of the 8 top-level trees)
+
+Across **all** 1,073 distinct items that carry at least one specification
+value (not just the 89 multi-category ones):
+
+- Resolved: 1,037 (Vacuum Component 628, Feedthrough 265, Viewport 60,
+  Others 52, Vacuum Valve 14, Isolator 12, Limited 4, Motion Feedthrough 2)
+- **Unresolved: 36**
+
+Root cause confirmed directly (not assumed): all 36 unresolved items have
+**zero** rows in `dtb_category_item` — they carry no category assignment at
+all in EC-CUBE. Sampled item names include a `【×】` prefix (EC-CUBE's own
+discontinued/excluded marker, e.g. item 162 "【×】接続部品 真空用両側プラグ付マルチモードファイバー
+UV / VIS") for most of them, consistent with these being deliberately
+uncategorized/retired source records rather than a resolver defect. These 36
+items still have specification data and must not be silently dropped from
+the migration — they need an explicit fallback bucket (candidate: the
+"Others" set, or a dedicated "Uncategorized" set) rather than being excluded;
+this is a design decision to confirm before the ITEM importer runs against
+them, not a blocking architectural conflict.
+
+### 8. Products whose resolved target set differs from current Magento set
+
+Checked all 1,092 `eccube_item_map` rows against their current
+`catalog_product_entity.attribute_set_id`:
+
+- **1,056 of 1,092 (96.7%)** have a resolved EC-CUBE-derived target set that
+  differs from their current Magento attribute-set assignment.
+- This is expected and confirms the known state: **100% of the current
+  catalog sits on `attribute_set_id=4` (Default)**, which is disposable
+  staging test data, not a migration signal. Per the user's explicit
+  standing instruction, this is not a stop condition — it is exactly the
+  situation the real product attribute-set assignment importer (Step 7,
+  not yet implemented) exists to correct.
+
+### Conclusion / no-stop determination
+
+Nothing found in this report meets the user's stop criteria ("the
+EC-CUBE-derived target assignment itself is ambiguous, incorrect, or could
+cause data loss"). The two open items (39 convention-resolved ties, 36
+uncategorized items) are documented for visibility but do not block
+progress — proceeding directly to the controlled Magento reassignment
+experiment (Step 4) as instructed.
+
+## Round 33 — Controlled Magento reassignment experiment (real save/reload/verify cycle)
+
+To avoid any risk to the only real reference data for the `ct_*` family,
+neither experiment touched products 1192 (Grouped, Coaxial set) or 1197
+(Simple, Coaxial set, 13 real `ct_*` EAV rows) directly. Instead each was
+**cloned** via `ProductRepositoryInterface` (new SKU/entity, all data copied,
+new unique `url_key`), the clone was put through the full experiment, then
+deleted. Confirmed after cleanup: 1192 and 1197 are byte-for-byte unchanged
+(`attribute_set_id=9` on both, 13 `ct_*` rows still on 1197, zero leftover
+clone rows in `catalog_product_entity`).
+
+### Experiment A — Simple product with real `ct_*` data, reassigned Coaxial(9) → Feedthrough(10)
+
+1. Cloned 1197 → new entity_id 20350, 13 `ct_*` EAV rows copied over intact.
+2. `setAttributeSetId(10)`, `save()` via `ProductRepositoryInterface`.
+3. **Result: all 13 `ct_*` EAV rows were physically DELETED**, not just
+   hidden — `catalog_product_entity_int`/`_varchar` went from 13 rows to 0
+   for this entity immediately after the save. This is Magento's
+   `EntityManager` doing exactly what its EAV save operation is documented
+   to do: on save, it reconciles attribute values against the *current*
+   attribute set's attribute list and removes rows for attributes no longer
+   in that set. It is **not a soft-hide** — the data is gone unless captured
+   beforehand.
+4. Confirmed via reload: `ProductRepositoryInterface::getById()` after the
+   reassignment returns `null` for `ct_a` etc., consistent with the DB state.
+   Setting `eccube_spec_119` on this now-Feedthrough-set clone and saving
+   also returned `null` on reload — because `eccube_spec_119` was not yet in
+   the Feedthrough set's attribute group either at time of test (single
+   3-spec controlled test only assigned it to specific sets during Round 24
+   testing, and Feedthrough's own attribute assignment differs) — this is
+   the *same* silent-drop behavior already identified as the Round-31 root
+   cause, reproduced here on demand as expected.
+
+**Implication for the real assignment importer (Step 7)**: reassigning
+`attribute_set_id` on a live product is a destructive operation for any
+existing EAV value outside the new set's attribute list. Since the
+migration's actual EC-CUBE-mapped products currently sit on `attribute_set_id=4`
+(Default, disposable test data — confirmed empty of `eccube_spec_*` and
+free of any `ct_*` values), this is safe to do at scale for those 1,092+
+17,982 mapped products. It must **never** be run against `ct_*`-bearing
+products (the 84 Coaxial-set products, none of which are EC-CUBE-mapped —
+confirmed in Round 33 pre-check) or any product outside the migration's own
+`eccube_item_map`/`eccube_product_map` scope. The real importer must
+restrict its candidate set to mapped products only — this is now a hard
+requirement, not just a convention.
+
+### Experiment B — Grouped product, reassigned Coaxial(9) → Vacuum Component(11), then value write
+
+1. Cloned 1192 → new entity_id 20351.
+2. Reassigned to Vacuum Component (11), saved successfully.
+3. Set `eccube_spec_119` (an int/select-backed attribute) to the string
+   `'EXPERIMENT-VALUE-B-GROUPED'`, saved, reloaded via
+   `ProductRepositoryInterface`.
+4. **Result: value persisted as `'0'`**, both via API reload and direct EAV
+   query (`catalog_product_entity_int`). Root cause: `eccube_spec_119` is a
+   `select` (int-backed) attribute; a non-numeric string set on an int
+   attribute is silently coerced to `0` by Magento's EAV int handling
+   instead of raising an error. This confirms the *positive* case — when an
+   attribute **is** present in the product's attribute set, `setData()` +
+   `save()` really does persist to the correct EAV table and is readable
+   back through `ProductRepositoryInterface` — but it also surfaces a
+   **second silent-failure mode** distinct from the Round-31 bug: passing an
+   invalid/non-option value for a select attribute does not throw, it writes
+   a wrong value (`0`, which is not a valid option ID either). The
+   verify-before-hash fix (Step 5) must check not just "was something
+   written" but "does the persisted value match the intended value/option
+   ID," or this failure mode will produce a second generation of false
+   successes.
+
+### Unblocked
+
+No genuine architectural ambiguity or unavoidable data-loss risk was found.
+Both findings above are implementation requirements for Steps 5 and 7, not
+stop conditions. Proceeding to Step 5 (verify-before-hash fix in
+`ItemAttributeValueImporter`/`ProductAttributeValueImporter`).
