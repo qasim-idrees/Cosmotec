@@ -195,6 +195,8 @@
                 <item name="cosmotecEccubeAnalyzeAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeAttributeSetsCommand</item>
                 <item name="cosmotecEccubeImportAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportAttributesCommand</item>
                 <item name="cosmotecEccubeImportAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportAttributeSetsCommand</item>
+                <item name="cosmotecEccubeAssignItemAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AssignItemAttributeSetsCommand</item>
+                <item name="cosmotecEccubeAssignProductAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AssignProductAttributeSetsCommand</item>
                 <item name="cosmotecEccubeImportItemAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportItemAttributeValuesCommand</item>
                 <item name="cosmotecEccubeImportProductAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductAttributeValuesCommand</item>
                 <item name="cosmotecEccubeImportRelatedProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportRelatedProductsCommand</item>

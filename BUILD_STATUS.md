@@ -2010,9 +2010,69 @@ All 1,092 `eccube_item_map` rows are now in a clean, honest state ready for
 the real assignment importer (Step 7) followed by a genuine retry of
 `import:item-attribute-values`.
 
+## Round 36 — Step 7: real attribute-set assignment importer
+
+New components, following the existing Reader→Repository→...→Importer→
+Mapping/History architecture:
+
+- `ItemMapRepositoryInterface`/`ProductMapRepositoryInterface`: added
+  `getMappedBatch(offset, limit)` - only rows with status
+  imported/updated and a non-null `magento_product_id`, ordered by
+  eccube id for resumable offset-based batching. This is the hard safety
+  boundary: the assignment importers never query
+  `catalog_product_entity` for candidates, only these mapping tables, so
+  the 84 `ct_*`/Coaxial-set products (confirmed in Round 33 to have zero
+  `eccube_item_map`/`eccube_product_map` rows) can never be touched.
+- `Model/Import/ItemAttributeSetAssignmentImporter` /
+  `ProductAttributeSetAssignmentImporter`: for each mapped row, resolve the
+  target top-level category via `AttributeSetResolver` (product-side
+  resolves through `ProductMap::getEccubeItemId()` - the owning item -
+  since EC-CUBE assigns categories at the item level only), look up the
+  Magento `attribute_set_id` via `AttributeSetMapRepository`, compare
+  against the product's live `attribute_set_id` (idempotent - no new
+  column needed), and on a real difference: reassign, save, reload with a
+  forced cache bypass, and verify the persisted `attribute_set_id` before
+  counting it as success (same discipline as Round 34). A `null` resolution
+  (the 36 uncategorized items) is tracked as `needsReview`, not `errors` -
+  a genuine data condition, not a bug. History recorded via a new
+  `SyncHistory::OPERATION_ASSIGN_ATTRIBUTE_SET` operation constant.
+- `Console/Command/AssignItemAttributeSetsCommand` /
+  `AssignProductAttributeSetsCommand`
+  (`cosmotec:eccube:assign:item-attribute-sets` /
+  `...:assign:product-attribute-sets`): dry-run by default, `--execute`
+  required, same area-code guard and `ExecuteModeResolver` pattern as the
+  other product-saving commands, `--batch-size` override. Registered in
+  `di.xml`.
+
+### Verification
+
+`php -l` clean on every new/changed file. `setup:di:compile` succeeded.
+
+Troubleshooting note for future sessions: after adding the two new commands
+to `di.xml`, a first `setup:di:compile` + `cache:flush` was NOT enough - the
+new command names stayed invisible to `bin/magento list` and
+`CommandListInterface::getCommands()` returned the pre-existing 124 commands
+without the two new ones, even though `generated/code/.../Interceptor.php`
+for the new commands existed and the raw di.xml text was correct. Resolved
+by a full clean: `rm -rf generated/code/* generated/metadata/* var/cache/*
+var/page_cache/*` followed by a fresh `setup:di:compile` + `cache:flush` -
+after that, both commands were found immediately. Root cause not fully
+isolated (likely a stale partial DI config artifact left over from the
+Round 35 compile predating these two files), but the fix is: if a brand new
+console command silently doesn't appear after compile+cache:flush, do a full
+`generated/`+`var/cache` wipe and recompile before assuming a code defect.
+
+Item-side dry run
+(`cosmotec:eccube:assign:item-attribute-sets`, no `--execute`):
+`Assigned: 1056, Updated: 0, Skipped: 0, Errors: 0, Needs review: 36`
+(total 1,092) - matches the Round 32 report exactly (1,056 mapped items
+whose resolved target differs from the current Default-set assignment, 36
+uncategorized items correctly routed to needs-review instead of being
+silently dropped or errored).
+
 ### Next
 
-Step 7: implement the real product attribute-set assignment importer using
-`AttributeSetResolver`, restricted to `eccube_item_map`/`eccube_product_map`
-rows only (never the `ct_*`/Coaxial products, which are confirmed to be
-outside migration scope entirely - see Round 33).
+Product-side dry run (`assign:product-attribute-sets`, ~18k rows, running),
+then a small controlled `--execute` batch on both sides verified via direct
+DB query AND `ProductRepositoryInterface` before the full batch, per the
+user's Step 8.

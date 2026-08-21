@@ -27,6 +27,16 @@ interface ItemMapRepositoryInterface
      */
     public function getUnfinished(int $limit): array;
 
+    /**
+     * Successfully-mapped items (a real Grouped Product exists), ordered by
+     * eccube_item_id for resumable offset-based batching. Used by the
+     * attribute-set assignment importer, which must never touch a Magento
+     * product outside this mapping.
+     *
+     * @return ItemMap[]
+     */
+    public function getMappedBatch(int $offset, int $limit): array;
+
     public function countByStatus(string $status): int;
 
     /**

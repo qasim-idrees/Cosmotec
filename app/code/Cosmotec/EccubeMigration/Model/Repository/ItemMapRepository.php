@@ -68,6 +68,18 @@ class ItemMapRepository implements ItemMapRepositoryInterface
         return $collection->getSize();
     }
 
+    public function getMappedBatch(int $offset, int $limit): array
+    {
+        $collection = $this->collectionFactory->create();
+        $collection->addFieldToFilter('status', ['in' => [ItemMap::STATUS_IMPORTED, ItemMap::STATUS_UPDATED]]);
+        $collection->addFieldToFilter('magento_product_id', ['notnull' => true]);
+        $collection->setOrder('eccube_item_id', 'ASC');
+        $collection->setPageSize(max(1, $limit));
+        $collection->setCurPage((int) floor($offset / max(1, $limit)) + 1);
+
+        return array_values($collection->getItems());
+    }
+
     public function getMaxLastSyncedAt(): ?\DateTimeImmutable
     {
         $collection = $this->collectionFactory->create();
