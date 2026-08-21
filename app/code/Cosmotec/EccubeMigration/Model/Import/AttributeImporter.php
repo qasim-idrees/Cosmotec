@@ -77,9 +77,25 @@ class AttributeImporter implements ImporterInterface
 
     public function import(ImportContext $context): ImportResult
     {
+        return $this->importFiltered($context, null);
+    }
+
+    /**
+     * @param int[]|null $specificationIds restrict to exactly these
+     *                                     dtb_specification ids - for a
+     *                                     small controlled test before a
+     *                                     full run. Null processes every
+     *                                     specification (the normal path).
+     */
+    public function importFiltered(ImportContext $context, ?array $specificationIds): ImportResult
+    {
         $result = new ImportResult();
 
         foreach ($this->specificationRepository->getAllWithUsage() as $specification) {
+            if ($specificationIds !== null && !in_array($specification->getId(), $specificationIds, true)) {
+                continue;
+            }
+
             $this->importOne($specification, $context, $result);
         }
 
@@ -107,15 +123,34 @@ class AttributeImporter implements ImporterInterface
                 return;
             }
 
+            // Checked once here rather than only inside persist(), so a dry
+            // run can accurately predict CREATE vs UPDATE the same way the
+            // real execute path does - previously this check only happened
+            // after the dry-run branch had already returned, so every dry
+            // run reported "Created" even for specifications already
+            // imported in an earlier run.
+            $attributeExists = $this->findExistingAttribute($specification->getMagentoAttributeCode()) !== null;
+
             if ($context->isDryRun()) {
-                $result->incrementImported();
-                $this->logger->info(sprintf(
-                    '[DRY RUN] Would create/verify attribute %s ("%s") with %d option(s), filterable=%s',
-                    $specification->getMagentoAttributeCode(),
-                    $specification->getLabel(),
-                    $specification->getOptionCount(),
-                    $specification->getSelectableCount() > 0 ? 'yes' : 'no'
-                ));
+                if ($attributeExists) {
+                    $result->incrementUpdated();
+                    $this->logger->info(sprintf(
+                        '[DRY RUN] Attribute %s ("%s") already exists - would verify/update, %d option(s), filterable=%s',
+                        $specification->getMagentoAttributeCode(),
+                        $specification->getLabel(),
+                        $specification->getOptionCount(),
+                        $specification->getSelectableCount() > 0 ? 'yes' : 'no'
+                    ));
+                } else {
+                    $result->incrementImported();
+                    $this->logger->info(sprintf(
+                        '[DRY RUN] Would create attribute %s ("%s") with %d option(s), filterable=%s',
+                        $specification->getMagentoAttributeCode(),
+                        $specification->getLabel(),
+                        $specification->getOptionCount(),
+                        $specification->getSelectableCount() > 0 ? 'yes' : 'no'
+                    ));
+                }
 
                 return;
             }

@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Console\Command;
 
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
+use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Sync\AttributeSync;
 use Symfony\Component\Console\Command\Command;
@@ -35,7 +36,8 @@ class SyncAttributesCommand extends Command
 
     public function __construct(
         private readonly AttributeSync $sync,
-        private readonly EccubeConfigProviderInterface $config
+        private readonly EccubeConfigProviderInterface $config,
+        private readonly ExecuteModeResolver $executeModeResolver
     ) {
         parent::__construct('cosmotec:eccube:sync:attributes');
     }
@@ -57,7 +59,7 @@ class SyncAttributesCommand extends Command
         }
 
         $execute = (bool) $input->getOption(self::OPTION_EXECUTE);
-        $dryRun = !$execute || (bool) $input->getOption(self::OPTION_DRY_RUN) || $this->config->isDryRunByDefault();
+        $dryRun = $this->executeModeResolver->isDryRun((bool) $input->getOption(self::OPTION_DRY_RUN), $execute);
 
         $output->writeln($dryRun
             ? '<comment>DRY RUN — nothing will be written. Pass --execute to apply changes.</comment>'

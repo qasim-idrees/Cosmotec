@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Console\Command;
 
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
+use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\RelatedProductImporter;
 use Symfony\Component\Console\Command\Command;
@@ -32,7 +33,8 @@ class ImportRelatedProductsCommand extends Command
 
     public function __construct(
         private readonly RelatedProductImporter $importer,
-        private readonly EccubeConfigProviderInterface $config
+        private readonly EccubeConfigProviderInterface $config,
+        private readonly ExecuteModeResolver $executeModeResolver
     ) {
         parent::__construct('cosmotec:eccube:import:related-products');
     }
@@ -54,7 +56,7 @@ class ImportRelatedProductsCommand extends Command
         }
 
         $execute = (bool) $input->getOption(self::OPTION_EXECUTE);
-        $dryRun = !$execute || (bool) $input->getOption(self::OPTION_DRY_RUN) || $this->config->isDryRunByDefault();
+        $dryRun = $this->executeModeResolver->isDryRun((bool) $input->getOption(self::OPTION_DRY_RUN), $execute);
 
         if ($dryRun) {
             $output->writeln('<comment>DRY RUN — no Magento related-product links will be written.</comment>');

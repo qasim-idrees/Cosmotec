@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Console\Command;
 
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
+use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\AttributeImporter;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Symfony\Component\Console\Command\Command;
@@ -32,10 +33,12 @@ class ImportAttributesCommand extends Command
     private const OPTION_EXECUTE = 'execute';
     private const OPTION_DRY_RUN = 'dry-run';
     private const OPTION_BATCH_SIZE = 'batch-size';
+    private const OPTION_SPECIFICATION_ID = 'specification-id';
 
     public function __construct(
         private readonly AttributeImporter $importer,
-        private readonly EccubeConfigProviderInterface $config
+        private readonly EccubeConfigProviderInterface $config,
+        private readonly ExecuteModeResolver $executeModeResolver
     ) {
         parent::__construct('cosmotec:eccube:import:attributes');
     }
@@ -46,6 +49,7 @@ class ImportAttributesCommand extends Command
         $this->addOption(self::OPTION_EXECUTE, null, InputOption::VALUE_NONE, 'Actually create Magento EAV attributes/options. Without this flag the command only reports what it would do.');
         $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Explicitly request a dry run (this is also the default).');
         $this->addOption(self::OPTION_BATCH_SIZE, null, InputOption::VALUE_REQUIRED, 'Override the configured batch size.');
+        $this->addOption(self::OPTION_SPECIFICATION_ID, null, InputOption::VALUE_REQUIRED, 'Comma-separated dtb_specification.id list — restrict to exactly these specifications (for a small controlled test before a full run).');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -57,7 +61,7 @@ class ImportAttributesCommand extends Command
         }
 
         $execute = (bool) $input->getOption(self::OPTION_EXECUTE);
-        $dryRun = !$execute || (bool) $input->getOption(self::OPTION_DRY_RUN) || $this->config->isDryRunByDefault();
+        $dryRun = $this->executeModeResolver->isDryRun((bool) $input->getOption(self::OPTION_DRY_RUN), $execute);
 
         if ($dryRun) {
             $output->writeln('<comment>DRY RUN — no Magento attributes, options or mappings will be created.</comment>');
@@ -78,7 +82,17 @@ class ImportAttributesCommand extends Command
             $batchSizeOption !== null ? (int) $batchSizeOption : null
         );
 
-        $result = $this->importer->import($context);
+        $specificationIdOption = $input->getOption(self::OPTION_SPECIFICATION_ID);
+        $specificationIds = $specificationIdOption !== null
+            ? array_map('intval', array_filter(array_map('trim', explode(',', (string) $specificationIdOption)), 'strlen'))
+            : null;
+
+        if ($specificationIds !== null) {
+            $output->writeln(sprintf('<comment>Restricted to specification id(s): %s</comment>', implode(', ', $specificationIds)));
+            $output->writeln('');
+        }
+
+        $result = $this->importer->importFiltered($context, $specificationIds);
 
         $output->writeln('');
         $output->writeln(sprintf(

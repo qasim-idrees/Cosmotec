@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Console\Command;
 
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
+use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\ProductAttributeValueImporter;
 use Symfony\Component\Console\Command\Command;
@@ -33,7 +34,8 @@ class ImportProductAttributeValuesCommand extends Command
 
     public function __construct(
         private readonly ProductAttributeValueImporter $importer,
-        private readonly EccubeConfigProviderInterface $config
+        private readonly EccubeConfigProviderInterface $config,
+        private readonly ExecuteModeResolver $executeModeResolver
     ) {
         parent::__construct('cosmotec:eccube:import:product-attribute-values');
     }
@@ -56,7 +58,7 @@ class ImportProductAttributeValuesCommand extends Command
         }
 
         $execute = (bool) $input->getOption(self::OPTION_EXECUTE);
-        $dryRun = !$execute || (bool) $input->getOption(self::OPTION_DRY_RUN) || $this->config->isDryRunByDefault();
+        $dryRun = $this->executeModeResolver->isDryRun((bool) $input->getOption(self::OPTION_DRY_RUN), $execute);
 
         if ($dryRun) {
             $output->writeln('<comment>DRY RUN — no Magento product attribute values will be written.</comment>');

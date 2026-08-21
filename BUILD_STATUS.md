@@ -1419,3 +1419,167 @@ specs 9/10/11/12/27, `sort_no DESC` + lowest-category_id tie-break) and
 the 2 known limitations (`AttributeSetResolver` not wired into
 `ItemMapper`/`ProductMapper`; individual-value removal not scrubbed)
 remain exactly as documented in Round 24/25 - unchanged by this round.
+
+---
+
+## Round 27 — dry-run/execute bug fix + first real controlled execute (3 attributes)
+
+### Bug found: `--execute` was silently non-functional on 12 commands
+
+While attempting the first controlled `import:attributes --execute` test
+(specs 119/125/141), the command printed "DRY RUN" and wrote nothing
+despite `--execute` being passed. Root cause: the module's admin setting
+**Stores > Configuration > Cosmotec > EC-CUBE Migration > "Dry Run by
+Default"** was Yes, and every `--execute`-required command OR'd that
+setting into its dry-run decision with equal weight to `--execute`:
+`$dryRun = !$execute || $dryRunFlag || $config->isDryRunByDefault();` -
+so the admin setting could silently defeat `--execute` with no error or
+warning. Confirmed live-reproduced, not theoretical.
+
+Exhaustively identified every affected file by grep (not assumed):
+exactly the 12 `--execute`-having commands (`import`/`sync:attributes`,
+`attribute-sets`, `item-attribute-values`, `product-attribute-values`,
+`related-products`, `connection-parts`). 10 other, older commands
+(`import:categories`, `sync:inventory`, etc.) also reference
+`isDryRunByDefault()` but have no `--execute` option at all - a
+different, correct, pre-existing design, confirmed untouched.
+`--dry-run=0` (referenced in the admin field's help text as the intended
+override) was confirmed **not actually implemented anywhere in the
+module** - every `--dry-run` option in every command is a boolean flag
+(`InputOption::VALUE_NONE`), not a value-accepting one.
+
+**Fix (Option B - proper fix, not a config workaround)**: new
+`Console\ExecuteModeResolver`, matching the already-working
+`import:images` command's logic exactly (`$dryRunFlag || !$executeFlag`)
+- the admin default is no longer consulted by this 12-command family at
+all, since dry-run is already their unconditional hard default with or
+without it. The admin setting itself, `system.xml`, and
+`ModuleConfig::isDryRunByDefault()` were **not modified** - they still
+correctly govern the older 10-command family. Applied identically to all
+12 files (verified via grep - zero remaining references to
+`isDryRunByDefault()` in any of the 12; `executeModeResolver` present in
+all 12). Required clearing a stale `generated/code/Cosmotec` interceptor
+cache after the constructor signatures changed (local build artifact,
+not a data operation, not tracked in git).
+
+Verified: 279 files / 0 lint errors; all 13 new/changed classes
+instantiate through Magento's real DI container; behaviour matrix
+confirmed against live data - no flags -> DRY RUN, `--execute` -> EXECUTE,
+`--execute --dry-run` together -> DRY RUN (dry-run wins, matching
+`import:images`'s documented precedence).
+
+### First real controlled execute - 3 attributes (accepted as the
+### controlled test, not rolled back)
+
+Verifying step (b) of the behaviour matrix (`--execute` must report
+EXECUTE) was run against the pre-approved, `ct_*`-non-overlapping,
+non-multi-value filter `--specification-id=119,125,141` - which, now
+that the fix makes `--execute` genuinely functional, actually created
+the 3 attributes for real, one step earlier in the sequence than
+originally planned. Reported immediately and transparently. Decision:
+**accepted as the controlled test** (exact same pre-vetted spec set;
+nothing unapproved was touched) - **not rolled back**.
+
+Full verification performed against live Magento (not assumed):
+
+| Check | Result |
+|---|---|
+| 3 attributes exist | `eccube_spec_119`="handle" (id 163), `eccube_spec_125`="Clamping bolt" (id 164), `eccube_spec_141`="Recommended plate thickness" (id 165) |
+| frontend_input / backend_type | `select` / `int` for all 3 (correct - none of these 3 are in the pending multiselect set) |
+| source_model | `Magento\Eav\Model\Entity\Attribute\Source\Table` (correct) |
+| scope (`is_global`) | 1 (Global) for all 3 - correct |
+| is_required | 0 for all 3 - correct |
+| is_filterable / is_filterable_in_search | 0 for all 3 - correct, matches source `selectable_count=0` for these specific specs (UNION rule) |
+| Option counts | 119: 2, 125: 3, 141: 2 - exact match to `dtb_specification_class` source counts |
+| Option ordering | Verified via the **authoritative `eav_attribute_option.sort_order` column** (not array-iteration order, which is not reliable) - exact match to source `sort_no`/id-tiebreak ordering for all 7 options across all 3 attributes |
+| No missing/duplicate options | Confirmed - 7 option-map rows total (2+3+2), each with a unique source `specification_class_id` |
+| `eccube_specification_map` | Exactly 3 rows, correct spec IDs/attribute IDs/scope flags/status=imported, no duplicates |
+| `eccube_specification_option_map` | Exactly 7 rows, correct source-to-Magento option id mapping, correct `sort_no`, status=imported |
+| No duplicate Magento attributes | Confirmed via `GROUP BY attribute_code HAVING COUNT(*) > 1` - none |
+| No stray `eccube_spec_*` attributes | Confirmed exactly 3 exist, nothing else |
+| `ct_*` attributes | Still exactly 17, same ids/codes/labels/frontend_input/backend_type/is_required/is_user_defined as the pre-test snapshot - byte-identical |
+| `catalog_product` attribute sets | Still exactly 2 (`Default`, `Coaxial`) |
+| EC-CUBE source (`dtb_specification`/`dtb_specification_class`) | Unchanged - `analyze:attributes` re-run shows identical 360/7,364/319/14/23/4, matching every prior measurement this session |
+
+### Idempotency - partial finding, honestly reported
+
+Re-ran the same dry-run (`import:attributes --specification-id=119,125,141`,
+no `--execute`) expecting a skip/update report. **It still printed
+"Created: 3"** - confirmed via direct query this did **not** write
+anything (all 3 counts unchanged) - but this is because
+`AttributeImporter`'s dry-run branch (`importOne()`) unconditionally logs
+"would create/verify" and increments the "imported" counter without
+first checking whether the attribute already exists; only the real
+`persist()` path (used in `--execute` mode) does the actual
+adopt-existing-or-create-new check (`findExistingAttribute()`,
+`getOptionByClassId()`). This is a **pre-existing reporting-only gap in
+already-existing code** (not introduced by this round's fix, not a
+duplication risk - verified no data was written) - the dry-run counter
+is cosmetically misleading, not incorrect in effect. True idempotency
+(does a second real `--execute` produce `Updated: 3, Created: 0` with no
+duplicate rows) has not yet been empirically proven with a real run and
+is flagged as a remaining item, not silently claimed.
+
+### Not done this round (explicitly)
+
+The remaining 316 specifications, attribute sets, item/product attribute
+values, related products, connection parts. `ct_*` not modified. No
+unrelated code changes. Nothing committed or pushed.
+
+---
+
+## Round 28 — dry-run idempotency reporting fix (final)
+
+Closed the one remaining non-critical issue from Round 27: `AttributeImporter`'s
+dry-run branch reported "Created" for every specification regardless of
+whether the Magento attribute already existed, because the existing-attribute
+check only happened inside `persist()` - after the dry-run branch had
+already returned. No data was ever at risk (confirmed in Round 27 - the
+dry-run wrote nothing either way), but the reported counts were
+inaccurate, which matters for trusting dry-run output ahead of the full
+319-attribute run.
+
+**Fix**: `findExistingAttribute()` (already-existing method, unchanged)
+is now also called once inside the dry-run branch of `importOne()`,
+before the `isDryRun()` check short-circuits - a read-only Magento API
+call, safe during dry-run. Reports `Updated` when the attribute code
+already exists (mirroring exactly what a real `--execute` would do -
+`persist()`'s own `$isUpdate` branch never truly "skips" an existing
+attribute, it re-verifies/updates it) and `Created` only for a
+genuinely new attribute code. Scoped deliberately narrowly: `persist()`
+and the real execute/write path were **not** touched - a minor,
+harmless duplicate `findExistingAttribute()` call now happens on the
+execute path (once in the new dry-run check that mirrors it, once inside
+`persist()`), left as-is rather than refactored, since the instruction
+was to fix dry-run reporting only, not to touch execute behavior without
+a proven need.
+
+### Verification (live, this round)
+
+- Lint: 279 files / 0 errors. DI: `AttributeImporter` instantiates
+  cleanly after `cache:flush config`. `setup:db:status`: up to date.
+  Module enabled.
+- Re-ran `import:attributes --specification-id=119,125,141` (dry-run,
+  no `--execute`): now correctly reports **`Created: 0, Updated: 3`**
+  (previously incorrectly reported `Created: 3`). Log confirms per-spec
+  detail: `"already exists - would verify/update"` for all three.
+- Confirmed zero data written by this dry-run: `eccube_spec_*` still 3,
+  `eccube_specification_map` still 3 rows, `eccube_specification_option_map`
+  still 7 rows - all unchanged.
+- Sanity-checked the other branch didn't break: dry-ran a genuinely new,
+  never-imported specification (110, "Fittings") - correctly reported
+  `Created: 1`, and confirmed nothing was actually written
+  (`eccube_spec_110` does not exist; total `eccube_spec_*` count still 3).
+- `ct_*`: still exactly 17, untouched. `analyze:attributes` re-run:
+  EC-CUBE source figures identical (360/7,364/319/14/23/4) - unchanged.
+- Per explicit instruction, `--execute` was **not** run again for
+  specs 119/125/141 - the Round 27 real execution result stands as the
+  controlled-test record.
+
+### Status
+
+The 3-specification controlled test (Round 27) plus this dry-run
+reporting fix (Round 28) are both complete and verified. Dry-run output
+can now be trusted ahead of the full 319-attribute run. No unrelated
+files changed. Nothing committed or pushed - awaiting the Git checkpoint
+before the full import.
