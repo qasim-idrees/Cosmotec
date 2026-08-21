@@ -1,0 +1,65 @@
+<?php
+/** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Dashboard $block */
+$statuses = $block->getStatuses();
+?>
+<div class="admin__data-grid-outer-wrap">
+    <h2><?= $block->escapeHtml(__('Import / Sync Status')) ?></h2>
+    <table class="data-table admin__table-primary">
+        <thead>
+            <tr>
+                <th><?= $block->escapeHtml(__('Entity')) ?></th>
+                <?php foreach ($statuses as $status): ?>
+                    <th><?= $block->escapeHtml(ucfirst($status)) ?></th>
+                <?php endforeach; ?>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($block->getEntitySummaries() as $summary): ?>
+                <tr>
+                    <td><strong><?= $block->escapeHtml($summary['label']) ?></strong></td>
+                    <?php foreach ($statuses as $status): ?>
+                        <td><?= (int) $summary['counts'][$status] ?></td>
+                    <?php endforeach; ?>
+                </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+
+<div class="admin__data-grid-outer-wrap" style="margin-top: 2em;">
+    <h2><?= $block->escapeHtml(__('Recent Activity')) ?></h2>
+    <table class="data-table admin__table-primary">
+        <thead>
+            <tr>
+                <th><?= $block->escapeHtml(__('Time')) ?></th>
+                <th><?= $block->escapeHtml(__('Run ID')) ?></th>
+                <th><?= $block->escapeHtml(__('Entity Type')) ?></th>
+                <th><?= $block->escapeHtml(__('Operation')) ?></th>
+                <th><?= $block->escapeHtml(__('Source ID')) ?></th>
+                <th><?= $block->escapeHtml(__('Target ID')) ?></th>
+                <th><?= $block->escapeHtml(__('Status')) ?></th>
+                <th><?= $block->escapeHtml(__('Message')) ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php $recent = $block->getRecentActivity(); ?>
+            <?php if ($recent === []): ?>
+                <tr>
+                    <td colspan="8"><?= $block->escapeHtml(__('No activity yet. Run an import or sync command to see history here.')) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php foreach ($recent as $entry): ?>
+                <tr>
+                    <td><?= $block->escapeHtml((string) $entry->getCreatedAt()) ?></td>
+                    <td><?= $block->escapeHtml((string) $entry->getRunId()) ?></td>
+                    <td><?= $block->escapeHtml((string) $entry->getEntityType()) ?></td>
+                    <td><?= $block->escapeHtml((string) $entry->getOperation()) ?></td>
+                    <td><?= (int) $entry->getSourceId() ?></td>
+                    <td><?= $entry->getTargetId() !== null ? (int) $entry->getTargetId() : '&mdash;' ?></td>
+                    <td><?= $block->escapeHtml((string) $entry->getStatus()) ?></td>
+                    <td><?= $block->escapeHtml((string) $entry->getMessage()) ?></td>
+                </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>

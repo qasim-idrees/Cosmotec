@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceContainer name="content">
+            <block class="Cosmotec\EccubeMigration\Block\Adminhtml\Mapping\Nav"
+                   name="cosmotec_eccube_mapping_nav"
+                   template="Cosmotec_EccubeMigration::mapping/nav.phtml">
+                <arguments>
+                    <argument name="current" xsi:type="string">categories</argument>
+                </arguments>
+            </block>
+            <uiComponent name="cosmotec_eccube_category_map_listing"/>
+        </referenceContainer>
+    </body>
+</page>

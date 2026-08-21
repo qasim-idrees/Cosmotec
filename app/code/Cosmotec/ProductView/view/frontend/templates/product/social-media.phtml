@@ -1,0 +1,36 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Product\Simple */
+$product = $block->getProduct();
+?>
+
+<?php  if ($product): ?>
+    <div class="simple-product-social-icons">
+
+    <div class="social-icons-container">
+                    <span class="social-icon-label">share the product</span>
+                    <div class="social-item">
+                        <a href="mailto:?subject=COSMOTEC+products+have+been+shared&amp;body=Coaxial+BNC-R+with+1+NW%2FKF25+flange%0AModel%3AN25BR1%0ASKU%3A10280%0A%0ADetails%0Ahttps%3A%2F%2Fen.cosmotec-co.jp%2Fproducts%2Fdetail%2F1%2Fproduct_id%2F2">
+                            <b aria-hidden="true" class="icon iconfont iconfont-envelope"></b>
+                        </a>
+                    </div>
+
+                     <div class="social-item">
+                        <a href="http://www.facebook.com/share.php?u=<?= $block->escapeUrl($product->getProductUrl());?>" rel="nofollow" target="_blank">
+                            <img src="https://static.cosmotec-co.jp/html/template/default/assets/img/common/sns_facebook.svg" alt="Facebook">
+                        </a>
+                    </div>
+
+                    <div class="social-item">
+                        <a href="http://line.me/R/msg/text/?Coaxial+BNC-R+with+1+NW%2FKF25+flange%0A<?= $block->escapeUrl($product->getProductUrl());?>" rel="nofollow" target="_blank">
+                            <img src="https://static.cosmotec-co.jp/html/template/default/assets/img/common/sns_line.svg" alt="LINE">
+                        </a>
+                    </div>
+
+                    <div class="social-item">
+                        <a href="https://twitter.com/share?url=<?= $block->escapeUrl($product->getProductUrl());?>&amp;text=Coaxial+BNC-R+with+1+NW%2FKF25+flange%0A" rel="nofollow" target="_blank">
+                            <img src="https://static.cosmotec-co.jp/html/template/default/assets/img/common/sns_twitter.svg" alt="Twitter">
+                        </a>
+                    </div>
+                </div>
+    </div>
+<?php endif; ?>

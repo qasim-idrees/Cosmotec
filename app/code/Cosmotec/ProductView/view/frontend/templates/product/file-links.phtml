@@ -1,0 +1,57 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Product\Simple */
+$product = $block->getProduct();
+?>
+
+<?php  if ($product): ?>
+    <div class="simple-product-filelinks">
+    <?php if($block->getChildAttributeLabel($product, 'ct_2d_cad')): ?>
+            <div class="file-link ct_3d_cad">
+                <a href="<?= $block->escapeHtml($block->getChildAttributeLabel($product, 'ct_3d_cad')) ?>">
+                    <span><?= $escaper->escapeHtml(__('3D CAD Download')) ?></span>
+                </a>
+            </div>
+        <?php else: ?>
+            <div class="file-link ct_3d_cad">
+                <a href="https://cdn.shopify.com/s/files/1/2110/7727/files/N25BRS1.dxf">
+                    <span><?= $escaper->escapeHtml(__('3D CAD Download')) ?></span>
+                </a>
+            </div>
+        <?php endif; ?>
+
+        <?php if($block->getChildAttributeLabel($product, 'ct_2d_cad')): ?>
+            <div class="file-link ct_2d_cad">
+                <a href="<?= $block->escapeHtml($block->getChildAttributeLabel($product, 'ct_2d_cad')) ?>">
+                    <span><?= $escaper->escapeHtml(__('2D CAD Download')) ?></span>
+                </a>
+            </div>
+        <?php else: ?>
+            <div class="file-link ct_2d_cad">
+            <a href="https://cdn.shopify.com/s/files/1/2110/7727/files/N25BRS1.dxf">
+                <span><?= $escaper->escapeHtml(__('2D CAD Download')) ?></span>
+            </a>
+        </div>
+        <?php endif; ?>
+
+        <?php if($block->getChildAttributeLabel($product, 'ct_rohs2')): ?>
+            <div class="file-link ct_rohs2">
+                <a href="<?= $block->escapeHtml($block->getChildAttributeLabel($product, 'ct_rohs2')) ?>">
+                    <span><?= $escaper->escapeHtml(__('RoHS2 Download')) ?></span>
+                </a>
+            </div>
+        <?php else: ?>
+            <div class="file-link ct_rohs2">
+                <a href="https://cdn.shopify.com/s/files/1/2110/7727/files/N25BRS1.dxf">
+                <span><?= $escaper->escapeHtml(__('RoHS2 Download')) ?></span>
+                </a>
+            </div>
+        <?php endif; ?>
+        <div class="file-link print">
+            <a href="#">
+                <span><?= $escaper->escapeHtml(__('Print')) ?></span>
+            </a>
+        </div>
+
+        
+    </div>
+<?php endif; ?>

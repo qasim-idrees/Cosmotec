@@ -1,0 +1,74 @@
+<?php
+$groups = $block->getGroupedAttributes();
+$data = [];
+$product = $block->getProduct();
+$isSimpleProduct = $block->isSimpleProduct($product);
+if ($isSimpleProduct == true) {
+    $products[] = $product; 
+} else {
+    $products = $block->getChildProducts($product);
+}
+foreach ($products as $child) {
+    $row = [];
+    foreach ($groups as $groupName => $attrs) {
+        foreach ($attrs as $attrCode => $ac) {
+            //  echo "<br /> groupName: ". $groupName;
+            ///echo "<br /> attribute code: ". ($attrCode);
+            //echo " - attrVal: " .$block->getChildAttributeLabel($child, $attrCode);
+            // echo "<br /> attribute label: ". ($ac['label']);
+            //  echo "<br /> attribute values: "; print_r($ac['values']);
+            $row[$attrCode] = $block->getChildAttributeLabel($child, $attrCode);
+        }
+    }
+    $qty = 0;
+    if ($child->isAvailable()) {
+       // echo "<br /> child available";
+        $stockItem = $child->getStockItem();
+       // echo '<pre>';
+     //   print_r($stockItem->getData());
+       //  echo '</pre>';
+        if ($stockItem) {
+            $qty = (int)$stockItem->getQty();
+        }
+    } else {
+        // echo "<br /> child not available";
+    }
+
+    $row['is_simple_product'] = $isSimpleProduct;
+    $row['sku'] = $child->getSku();
+    $row['name'] = $child->getName();
+    $row['price'] = $block->getProductPrice($child);
+    $row['ct_model'] = $child->getCtModel() ?: '-';
+    $row['id'] = $child->getId() ?: '-';
+    $row['stock'] = $qty;
+    
+    $row['ct_nwkf'] = $block->getChildAttributeLabel($child, 'ct_nwkf') ?: '-';
+    $row['ct_icf'] = $block->getChildAttributeLabel($child, 'ct_icf') ?: '-';
+    $row['ct_vf'] = $block->getChildAttributeLabel($child, 'ct_vf') ?: '-';
+    $row['ct_vg'] = $block->getChildAttributeLabel($child, 'ct_vg') ?: '-';
+    $row['ct_a'] = $block->getChildAttributeLabel($child, 'ct_a') ?: '-';
+    $row['ct_b'] = $block->getChildAttributeLabel($child, 'ct_b') ?: '-';
+    $row['ct_c'] = $block->getChildAttributeLabel($child, 'ct_c') ?: '-';
+    $row['ct_d'] = $block->getChildAttributeLabel($child, 'ct_d') ?: '-';
+    $row['ct_pcd'] = $block->getChildAttributeLabel($child, 'ct_pcd') ?: '-';
+    $row['ct_the_number_of_electrode'] = $block->getChildAttributeLabel($child, 'ct_the_number_of_electrode') ?: '-';
+    $row['ct_when_out_of_stock'] = $block->getChildAttributeLabel($child, 'ct_when_out_of_stock') ?: '-';
+    $row['product_url'] = $child->getProductUrl();
+    
+    $data[] = $row;
+}
+?>
+<div id="cosmotec-variant-filter"
+<?php if ($isSimpleProduct == true) { ?>
+    data-is-simple='yes'
+    data-parent-product-url = '<?= $block->escapeUrl($block->getParentProductUrl($product)); ?>';
+<?php } ?>
+data-groups='<?= json_encode($groups) ?>'
+data-products='<?= json_encode($data) ?>'
+data-groups-excluded='<?= json_encode($this->getSkippedGroups()) ?>'
+data-attributes-excluded='<?= json_encode($this->getSkippedAttributes()) ?>'
+></div>
+
+<script type="text/x-magento-init">
+{"#cosmotec-variant-filter":{"Cosmotec_VariantFilter/js/variant-filter":{}}}
+</script>

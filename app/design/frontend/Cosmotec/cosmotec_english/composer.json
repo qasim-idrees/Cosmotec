@@ -1,0 +1,15 @@
+{
+  "name": "cosmotec/theme-cosmotec-english",
+  "description": "Cosmotec English Version",
+  "type": "magento2-theme",
+  "version": "1.0.0",
+  "license": "OSL-3.0",
+  "require": {
+    "magento/framework": "*"
+  },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ]
+    }
+}

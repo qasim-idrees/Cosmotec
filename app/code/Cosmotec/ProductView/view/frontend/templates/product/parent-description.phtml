@@ -1,0 +1,13 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Product\Simple */
+$product = $block->getProduct();
+?>
+
+<?php if ($product && $block->isSimpleProduct($product)):?>
+        <?php $shortDescription = $block->getParentDescriptionFromChild($product); ?>
+        <?php if ($shortDescription != null):?>
+            <div class="simple-product-description">
+                <?= $shortDescription; ?>
+            </div>
+        <?php endif; ?>
+<?php endif; ?>

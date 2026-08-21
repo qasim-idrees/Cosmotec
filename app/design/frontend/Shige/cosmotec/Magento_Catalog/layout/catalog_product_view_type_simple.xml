@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+
+     
+
+    <body>
+
+<!-- 
+     <referenceContainer name="content">
+            <container name="product.info.side.wrapper"
+                       htmlTag="div"
+                       htmlClass="product-info-side-wrapper"
+                       after="product.info.main">
+
+ 
+            </container>
+      </referenceContainer> 
+
+
+         <block class="Cosmotec\VariantFilter\Block\Product\BasicInformation"
+                       name="cosmotec.variant.product.basicinformation"
+                       template="Cosmotec_VariantFilter::product/basic-information.phtml"/> -->
+        <referenceContainer name="product.info.main">
+                <block class="Cosmotec\ProductView\Block\Simple"
+                       name="cosmotec.simple.product.sku.model"
+                       template="Cosmotec_ProductView::product/sku-and-model.phtml" before="-" />
+                <block class="Cosmotec\ProductView\Block\Simple"
+                       name="cosmotec.simple.product.parent.description"
+                       template="Cosmotec_ProductView::product/parent-description.phtml" after="cosmotec.simple.product.sku.model" />
+        
+        </referenceContainer>
+
+        <referenceContainer name="product.info.side.wrapper">
+            <container name="product.info.side.wrapper.addtocart"
+                       htmlTag="div"
+                       htmlClass="product-info-side-wrapper-addtocart"
+                       before="-">
+                       <block class="Cosmotec\ProductView\Block\Simple" name="product.stock.info"  template="Cosmotec_ProductView::product/stock-info.phtml"  />
+                       <block class="Cosmotec\ProductView\Block\Simple" name="product.stock.contact.btn"  template="Cosmotec_ProductView::product/contact-btn.phtml"  />
+
+
+
+            
+            </container>
+            <container name="product.info.side.wrapper.fileslink"
+                       htmlTag="div"
+                       htmlClass="product-info-side-wrapper-filelinks"
+                       after="-">
+                       <block class="Cosmotec\ProductView\Block\Simple" name="product.simple.filelinks"  template="Cosmotec_ProductView::product/file-links.phtml" after="-"  />
+
+
+            
+            </container>
+
+        </referenceContainer>
+        <referenceContainer name="product.info.media">
+            <block class="Cosmotec\ProductView\Block\Simple"
+                       name="cosmotec.simple.product.social.icons"
+                       template="Cosmotec_ProductView::product/social-media.phtml" after="-" />
+        
+        </referenceContainer>
+
+        <move element="cosmotec.product.basicinformation"  destination="product.info.main" after="-" />
+        <move element="product.info.price" destination="product.info.side.wrapper.addtocart" before="product.stock.info" />
+        <!-- <move element="product.info.addtocart" destination="product.info.side.wrapper.addtocart" /> -->
+        <move element="product.info" destination="product.info.side.wrapper.addtocart" />
+        <move element="view.addto.wishlist" destination="product.info.side.wrapper.addtocart" after="product.info" />
+        <move element="product.stock.contact.btn" destination="product.info.side.wrapper.addtocart" after="view.addto.wishlist" />
+        <referenceContainer name="product.info.extrahint" remove="true" />
+        <referenceBlock name="product.info.overview" remove="true" />
+        <referenceBlock name="product.info.stock.sku" remove="true" />
+        
+       <!-- <referenceBlock name="product.info.price" remove="true" /> -->
+
+    </body>
+</page>

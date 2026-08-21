@@ -1,0 +1,12 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Simple */
+
+$product = $block->getProduct();
+$attributeCode = 'ct_tab_catalog';
+if ($block->isSimpleProduct($product) == true) {
+    echo $block->getParentAttributeFromChild($product, $attributeCode);
+} else{
+    echo $block->getChildAttributeLabel($product,  $attributeCode) ?: '';
+}
+
+?>

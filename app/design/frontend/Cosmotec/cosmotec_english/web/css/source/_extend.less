@@ -1,0 +1,56 @@
+
+
+html {
+    line-height: 1.5;
+    font-size: 62.5%;
+    -webkit-transition: .4s;
+    transition: .4s;
+    -ms-overflow-style: scrollbar;
+    -webkit-tap-highlight-color: transparent
+}
+
+body {
+    color: #151515;
+    background-color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Noto Sans JP", YuGothic, "ヒラギノ角ゴ ProN W3", Hiragino Kaku Gothic ProN, Arial, "メイリオ", Meiryo, sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+
+// This ensures the code is only processed for desktop styles
+& when (@media-target = 'desktop'), (@media-target = 'all') {
+    @media all and (min-width: 768px), print {
+        .navigation, .breadcrumbs, .page-header .header.panel, .header.content, 
+        .footer.content, .page-wrapper > .widget, .page-wrapper > .page-bottom, 
+        .block.category.event, .top-container, .page-main {
+            box-sizing: border-box;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            width: auto;
+            max-width: 1440px !important;
+            margin: 0 auto;
+        }
+
+        #maincontent{
+            .page-title-wrapper {
+                h1.page-title {
+                    font-size: 25px;
+                    color: #001844;
+                    margin: 10px auto;
+                    padding: 10px 0;
+                    font-weight: 900;
+
+                }
+            } 
+        }
+
+
+    }
+}
+  
+  
+  
+  

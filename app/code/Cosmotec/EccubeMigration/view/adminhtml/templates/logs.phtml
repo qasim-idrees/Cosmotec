@@ -1,0 +1,19 @@
+<?php
+/** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Logs $block */
+?>
+<?php foreach ($block->getLogs() as $label => $log): ?>
+    <div class="admin__data-grid-outer-wrap" style="margin-bottom: 2em;">
+        <h2>
+            <?= $block->escapeHtml($label) ?>
+            <small style="font-weight: normal; color: #6b6b6b;">(<?= $block->escapeHtml($log['path']) ?>)</small>
+        </h2>
+        <?php if (!$log['exists']): ?>
+            <p><?= $block->escapeHtml(__('This log file does not exist yet. It is created the first time a relevant command runs (with Enable Logging turned on).')) ?></p>
+        <?php elseif (trim($log['content']) === ''): ?>
+            <p><?= $block->escapeHtml(__('This log file is currently empty.')) ?></p>
+        <?php else: ?>
+            <textarea readonly="readonly" rows="18" style="width: 100%; font-family: monospace; font-size: 12px; white-space: pre; overflow: auto;"><?= $block->escapeHtml($log['content']) ?></textarea>
+            <p style="color: #6b6b6b;"><?= $block->escapeHtml(__('Showing the tail of this file. Reload the page for the latest entries.')) ?></p>
+        <?php endif; ?>
+    </div>
+<?php endforeach; ?>

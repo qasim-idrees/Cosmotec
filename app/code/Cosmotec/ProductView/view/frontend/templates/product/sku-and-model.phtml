@@ -1,0 +1,11 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Product\Simple */
+$product = $block->getProduct();
+?>
+
+<?php  if ($product): ?>
+    <div class="simple-product-code">
+        <span class="product-code"><?= $escaper->escapeHtml(__('Product code:')) ?> <?= $block->escapeHtml($product->getSku()) ?></span>
+        <span class="product-model"><?= $escaper->escapeHtml(__('Model:')) ?> <?= $block->escapeHtml($product->getCtModel()) ?></span>
+    </div>
+<?php endif; ?>

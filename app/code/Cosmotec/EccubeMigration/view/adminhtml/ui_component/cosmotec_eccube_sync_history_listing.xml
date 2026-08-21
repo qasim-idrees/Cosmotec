@@ -1,0 +1,128 @@
+<?xml version="1.0"?>
+<listing xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">cosmotec_eccube_sync_history_listing.cosmotec_eccube_sync_history_listing_data_source</item>
+        </item>
+    </argument>
+    <settings>
+        <spinner>cosmotec_eccube_sync_history_columns</spinner>
+        <deps>
+            <dep>cosmotec_eccube_sync_history_listing.cosmotec_eccube_sync_history_listing_data_source</dep>
+        </deps>
+    </settings>
+    <dataSource name="cosmotec_eccube_sync_history_listing_data_source">
+        <settings>
+            <updateUrl path="mui/index/render"/>
+        </settings>
+        <argument name="dataProvider" xsi:type="configurableObject">
+            <argument name="class" xsi:type="string">Cosmotec\EccubeMigration\Ui\DataProvider\SyncHistoryDataProvider</argument>
+            <argument name="name" xsi:type="string">cosmotec_eccube_sync_history_listing_data_source</argument>
+            <argument name="primaryFieldName" xsi:type="string">entity_id</argument>
+            <argument name="requestFieldName" xsi:type="string">id</argument>
+        </argument>
+        <argument name="data" xsi:type="array">
+            <item name="js_config" xsi:type="array">
+                <item name="component" xsi:type="string">Magento_Ui/js/grid/provider</item>
+            </item>
+        </argument>
+    </dataSource>
+    <listingToolbar name="listing_top">
+        <settings>
+            <sticky>true</sticky>
+        </settings>
+        <bookmark name="bookmarks"/>
+        <columnsControls name="columns_controls"/>
+        <filters name="listing_filters"/>
+        <paging name="listing_paging"/>
+    </listingToolbar>
+    <columns name="cosmotec_eccube_sync_history_columns">
+        <settings>
+            <editorConfig>
+                <param name="enabled" xsi:type="boolean">false</param>
+            </editorConfig>
+            <childDefaults>
+                <param name="fieldAction" xsi:type="array">
+                    <item name="provider" xsi:type="null"/>
+                </param>
+            </childDefaults>
+        </settings>
+        <column name="entity_id">
+            <settings>
+                <filter>text</filter>
+                <sorting>desc</sorting>
+                <label translate="true">ID</label>
+            </settings>
+        </column>
+        <column name="run_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Run ID</label>
+            </settings>
+        </column>
+        <column name="entity_type">
+            <settings>
+                <filter>select</filter>
+                <options class="Cosmotec\EccubeMigration\Ui\Component\EntityTypeOptions"/>
+                <dataType>select</dataType>
+                <label translate="true">Entity Type</label>
+            </settings>
+        </column>
+        <column name="operation">
+            <settings>
+                <filter>select</filter>
+                <options class="Cosmotec\EccubeMigration\Ui\Component\OperationOptions"/>
+                <dataType>select</dataType>
+                <label translate="true">Operation</label>
+            </settings>
+        </column>
+        <column name="source_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">EC-CUBE ID</label>
+            </settings>
+        </column>
+        <column name="target_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Magento ID</label>
+            </settings>
+        </column>
+        <column name="status">
+            <settings>
+                <filter>select</filter>
+                <options class="Cosmotec\EccubeMigration\Ui\Component\HistoryStatusOptions"/>
+                <dataType>select</dataType>
+                <label translate="true">Status</label>
+            </settings>
+        </column>
+        <column name="message">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Message</label>
+            </settings>
+        </column>
+        <column name="duration_ms">
+            <settings>
+                <filter>textRange</filter>
+                <dataType>text</dataType>
+                <label translate="true">Duration (ms)</label>
+            </settings>
+        </column>
+        <column name="memory_bytes">
+            <settings>
+                <filter>textRange</filter>
+                <dataType>text</dataType>
+                <label translate="true">Memory (bytes)</label>
+                <visible>false</visible>
+            </settings>
+        </column>
+        <column name="created_at" class="Magento\Ui\Component\Listing\Columns\Date">
+            <settings>
+                <filter>dateRange</filter>
+                <dataType>date</dataType>
+                <label translate="true">Created At</label>
+            </settings>
+        </column>
+    </columns>
+</listing>

@@ -1,0 +1,126 @@
+<?xml version="1.0"?>
+<listing xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">cosmotec_eccube_product_map_listing.cosmotec_eccube_product_map_listing_data_source</item>
+        </item>
+    </argument>
+    <settings>
+        <spinner>cosmotec_eccube_product_map_columns</spinner>
+        <deps>
+            <dep>cosmotec_eccube_product_map_listing.cosmotec_eccube_product_map_listing_data_source</dep>
+        </deps>
+    </settings>
+    <dataSource name="cosmotec_eccube_product_map_listing_data_source">
+        <settings>
+            <updateUrl path="mui/index/render"/>
+        </settings>
+        <argument name="dataProvider" xsi:type="configurableObject">
+            <argument name="class" xsi:type="string">Cosmotec\EccubeMigration\Ui\DataProvider\ProductMapDataProvider</argument>
+            <argument name="name" xsi:type="string">cosmotec_eccube_product_map_listing_data_source</argument>
+            <argument name="primaryFieldName" xsi:type="string">entity_id</argument>
+            <argument name="requestFieldName" xsi:type="string">id</argument>
+        </argument>
+        <argument name="data" xsi:type="array">
+            <item name="js_config" xsi:type="array">
+                <item name="component" xsi:type="string">Magento_Ui/js/grid/provider</item>
+            </item>
+        </argument>
+    </dataSource>
+    <listingToolbar name="listing_top">
+        <settings>
+            <sticky>true</sticky>
+        </settings>
+        <bookmark name="bookmarks"/>
+        <columnsControls name="columns_controls"/>
+        <filters name="listing_filters"/>
+        <paging name="listing_paging"/>
+    </listingToolbar>
+    <columns name="cosmotec_eccube_product_map_columns">
+        <settings>
+            <editorConfig>
+                <param name="enabled" xsi:type="boolean">false</param>
+            </editorConfig>
+            <childDefaults>
+                <param name="fieldAction" xsi:type="array">
+                    <item name="provider" xsi:type="null"/>
+                </param>
+            </childDefaults>
+        </settings>
+        <column name="entity_id">
+            <settings>
+                <filter>text</filter>
+                <sorting>asc</sorting>
+                <label translate="true">ID</label>
+            </settings>
+        </column>
+        <column name="eccube_product_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">EC-CUBE Product ID</label>
+            </settings>
+        </column>
+        <column name="eccube_item_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">EC-CUBE Item ID</label>
+            </settings>
+        </column>
+        <column name="magento_product_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Magento Product ID</label>
+            </settings>
+        </column>
+        <column name="sku">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">SKU</label>
+            </settings>
+        </column>
+        <column name="status">
+            <settings>
+                <filter>select</filter>
+                <options class="Cosmotec\EccubeMigration\Ui\Component\MapStatusOptions"/>
+                <dataType>select</dataType>
+                <label translate="true">Status</label>
+            </settings>
+        </column>
+        <column name="relation_linked">
+            <settings>
+                <filter>select</filter>
+                <options class="Magento\Config\Model\Config\Source\Yesno"/>
+                <dataType>select</dataType>
+                <label translate="true">Linked to Grouped Product</label>
+            </settings>
+        </column>
+        <column name="error_message">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Error Message</label>
+            </settings>
+        </column>
+        <column name="last_synced_at" class="Magento\Ui\Component\Listing\Columns\Date">
+            <settings>
+                <filter>dateRange</filter>
+                <dataType>date</dataType>
+                <label translate="true">Last Synced At</label>
+            </settings>
+        </column>
+        <column name="inventory_synced_at" class="Magento\Ui\Component\Listing\Columns\Date">
+            <settings>
+                <filter>dateRange</filter>
+                <dataType>date</dataType>
+                <label translate="true">Inventory Synced At</label>
+            </settings>
+        </column>
+        <column name="created_at" class="Magento\Ui\Component\Listing\Columns\Date">
+            <settings>
+                <filter>dateRange</filter>
+                <dataType>date</dataType>
+                <label translate="true">Created At</label>
+                <visible>false</visible>
+            </settings>
+        </column>
+    </columns>
+</listing>

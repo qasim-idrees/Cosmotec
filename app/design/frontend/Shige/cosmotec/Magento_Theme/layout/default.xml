@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        
+        <css src="css/cosmotecstyle.css"/>
+        
+    </head>
+    <body>
+        <referenceBlock name="logo">
+            <arguments>
+                <argument name="logo_file" xsi:type="string">images/logo.svg</argument>
+            </arguments>
+        </referenceBlock>
+
+
+
+
+
+<!-- Temporary SEctions  and need to modify again -->
+        <referenceContainer name="footer-container">
+            <referenceContainer name="footer" remove="true" />
+            <container name="original.footer"
+                       htmlTag="div"
+                       htmlClass="original-footer"
+                       before="-">
+                <block class="Magento\Framework\View\Element\Template" name="footer.japanese" template="Magento_Theme::html/footer/japanes-footer.phtml" before="-"/>
+            </container>
+        </referenceContainer>
+
+        <referenceContainer name="header.container">
+            <referenceContainer name="header.panel.wrapper" remove="true" />
+            <referenceContainer name="header-wrapper" remove="true" />
+            <container name="original.header"
+                       htmlTag="div"
+                       htmlClass="original-header"
+                       before="-">
+                <block class="Magento\Framework\View\Element\Template" name="header.japanese" template="Magento_Theme::html/header/header-japanese.phtml" before="-"/>
+            </container>
+
+        </referenceContainer>
+
+        <referenceBlock name="copyright" remove="true" />
+        <referenceBlock name="navigation.sections" remove="true" />
+
+
+
+<!-- Temporary SEctions  and need to modify again -->
+
+    </body>
+</page>
+

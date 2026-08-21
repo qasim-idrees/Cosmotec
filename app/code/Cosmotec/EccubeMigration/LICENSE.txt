@@ -1,0 +1,8 @@
+Proprietary Software License
+
+Copyright (c) Cosmotec. All rights reserved.
+
+This module is proprietary and confidential. Unauthorized copying,
+distribution, modification, or use of this software, via any medium,
+is strictly prohibited without the express written permission of the
+copyright holder.

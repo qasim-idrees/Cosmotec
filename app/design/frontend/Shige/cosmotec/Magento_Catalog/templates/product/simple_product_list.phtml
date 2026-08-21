@@ -1,0 +1,151 @@
+<?php
+/**
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
+ */
+use Magento\Framework\App\Action\Action;
+
+?>
+<?php
+/**
+ * Product list template
+ *
+ * @var $block \Magento\Catalog\Block\Product\ListProduct
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \Magento\Framework\View\Helper\SecureHtmlRenderer $secureRenderer
+ */
+?>
+<?php
+$_productCollection = $block->getLoadedProductCollection();
+/** @var \Magento\Catalog\Helper\Output $_helper */
+$_helper = $block->getData('outputHelper');
+?>
+<?php if (!$_productCollection->count()): ?>
+    <div class="message info empty">
+        <div><?= $escaper->escapeHtml(__('We can\'t find products matching the selection.')) ?></div>
+    </div>
+<?php else: ?>
+    <?= $block->getToolbarHtml() ?>
+    <?= $block->getAdditionalHtml() ?>
+    <?php
+    if ($block->getMode() === 'grid') {
+        $viewMode = 'grid';
+        $imageDisplayArea = 'category_page_grid';
+        $showDescription = false;
+        $templateType = \Magento\Catalog\Block\Product\ReviewRendererInterface::SHORT_VIEW;
+    } else {
+        $viewMode = 'list';
+        $imageDisplayArea = 'category_page_list';
+        $showDescription = true;
+        $templateType = \Magento\Catalog\Block\Product\ReviewRendererInterface::FULL_VIEW;
+    }
+    /**
+     * Position for actions regarding image size changing in vde if needed
+     */
+    $pos = $block->getPositioned();
+    ?>
+    <div class="ec-headingResult">
+        <h2 class="ec-heading">
+        Products　<?php echo $_productCollection->count(); ?>Matter
+        <span>
+            (1
+            ~<?php echo $_productCollection->count(); ?>
+            )
+        </span>
+    </h2>
+
+        <div class="ec-headingResult__inner">
+        <dl class="ec-headingResult__row">
+            <dt class="ec-headingResult__title">Displayed results</dt>
+            <dd class="ec-inlineBtnGroup" id="display_number">
+                                    <button type="button" id="display_number_20" value="0" data-show-count="20" class="ec-inlineBtnGroup__btn is-current">20件</button>
+                                    <button type="button" id="display_number_40" value="1" data-show-count="40" class="ec-inlineBtnGroup__btn ">40件</button>
+                                    <button type="button" id="display_number_60" value="2" data-show-count="60" class="ec-inlineBtnGroup__btn ">60件</button>
+                            </dd>
+        </dl>
+
+                <dl class="ec-headingSwitching__row">
+            <dt class="ec-headingResult__title">Display switching</dt>
+            <dd class="ec-inlineBtnGroup">
+                <button type="button" class="ec-inlineBtnGroup__btn js-productList">
+                    <b aria-hidden="true" class="icon iconfont iconfont-bars icon-lg"></b>
+                </button>
+                <button type="button" class="ec-inlineBtnGroup__btn js-productTile is-current">
+                    <b aria-hidden="true" class="icon iconfont iconfont-tile icon-lg"></b>
+                </button>
+            </dd>
+        </dl>
+    </div>
+</div>
+    <div class="products wrapper <?= /* @noEscape */ $viewMode ?> products-<?= /* @noEscape */ $viewMode ?>">
+        <ol class="products list items product-items">
+            <?php /** @var $_product \Magento\Catalog\Model\Product */ ?>
+            <?php foreach ($_productCollection as $_product): ?>
+            <li class="item product product-item-wraper">
+                <div class="product-item-wraper-inner">
+                    <div class="product-item-information"
+                        id="product-item-info_<?= /* @noEscape */ $_product->getId() ?>"
+                        data-container="product-<?= /* @noEscape */ $viewMode ?>">
+                        <?php
+                        $productImage = $block->getImage($_product, $imageDisplayArea);
+                        if ($pos != null) {
+                            $position = 'left:' . $productImage->getWidth() . 'px;'
+                                . 'top:' . $productImage->getHeight() . 'px;';
+                        }
+                        ?>
+                        <?php // Product Image ?>
+                        <div class="product-item-image">
+                            <a href="<?= $escaper->escapeUrl($_product->getProductUrl()) ?>"
+                                class="product photo product-item-photo"
+                                tabindex="-1">
+                                <?= $productImage->toHtml() ?>
+                            </a>
+                        </div>
+                        <div class="product-item-stock-delivery">
+                            <?=/* @noEscape */ $_product->getAttributeText('ct_when_out_of_stock'); ?>
+                        </div>
+                        <div class="product-item-name">
+                            <?php $_productNameStripped = $block->stripTags($_product->getName(), null, true); ?>
+                                <a 
+                                href="<?= $escaper->escapeUrl($_product->getProductUrl()) ?>">
+                                    <?=/* @noEscape */ $_helper->productAttribute($_product, $_product->getName(), 'name')?>
+                                </a>
+                        </div>
+                        <div class="product-item-sku">
+                            <?= $escaper->escapeHtml(__('Product code: ')) ?><?=/* @noEscape */ $_helper->productAttribute($_product, $_product->getSku(), 'sku')?>
+                            <br />
+                            <?= $escaper->escapeHtml(__('Model: ')) ?><?=/* @noEscape */ $_helper->productAttribute($_product, $_product->getCtModel(), 'ct_model')?>
+                            <?php // $block->getReviewsSummaryHtml($_product, $templateType) ?>
+                        </div>
+                        
+                    
+                    </div>
+                    <div class="product-item-actions">
+                         
+                                    <div class="product-item-price">
+                                        <?= /* @noEscape */ $block->getProductPrice($_product) ?>
+                                    </div>
+                                
+                                        <?php if ($_product->isSaleable()):?>
+                                            <button type="button" title="<?php echo  $block->escapeHtmlAttr(__('Add to Cart')); ?>" class="action tocart" 
+                                            data-mage-init='{ "redirectUrl": { "event": "click", "url": "<?= $block->escapeUrl($block->getAddToCartUrl($_product)); ?>"} }'>
+                                            <b class="icon iconfont"></b>
+                                            <span><?= $block->escapeHtml(__('Add to Cart')); ?></span></button>
+                                        <?php endif; ?>
+
+                                        <a href="#" data-post='<?php echo $this->helper(Magento\Wishlist\Helper\Data::class)->getAddParams($_product); ?>' class="action towishlist" data-action="add-to-wishlist">
+                                            <span><?php echo $block->escapeHtml(__('Add to List')); ?></span>
+                                        </a>
+  
+                                     
+                                 
+                        </div>
+ 
+                </div>
+            </li>
+            <?php endforeach; ?>
+        </ol>
+    </div>
+    <?= $block->getChildBlock('toolbar')->setIsBottom(true)->toHtml() ?>
+    <?php // phpcs:ignore Magento2.Legacy.PhtmlTemplate ?>
+<?php endif; ?>

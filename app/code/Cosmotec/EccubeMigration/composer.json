@@ -1,0 +1,33 @@
+{
+    "name": "cosmotec/module-eccube-migration",
+    "description": "Migration and synchronization framework for EC-CUBE 4.0.0 to Magento 2.4.8-p3.",
+    "type": "magento2-module",
+    "license": "proprietary",
+    "version": "1.0.0",
+    "require": {
+        "php": "~8.2.0||~8.3.0||~8.4.0",
+        "magento/framework": "*",
+        "magento/module-catalog": "*",
+        "magento/module-catalog-inventory": "*",
+        "magento/module-inventory-api": "*",
+        "magento/module-store": "*",
+        "magento/module-eav": "*",
+        "magento/module-url-rewrite": "*",
+        "magento/module-indexer": "*",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "magento/magento-coding-standard": "*"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Cosmotec\\EccubeMigration\\": ""
+        }
+    }
+}

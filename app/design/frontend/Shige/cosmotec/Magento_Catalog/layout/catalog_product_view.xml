@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+
+<body>
+    <referenceBlock name="product.info.details">
+         <block class="Cosmotec\ProductView\Block\Simple"
+               name="cosmotec.product.tab.catalog"
+               template="Cosmotec_ProductView::product/tabs/tab-catalog.phtml"
+               group="detailed_info">
+            <arguments>
+                <argument name="title" xsi:type="string">Catalog</argument>
+            </arguments>
+        </block>
+    </referenceBlock>
+    <referenceBlock name="product.info.details">
+         <block class="Cosmotec\ProductView\Block\Simple"
+               name="cosmotec.product.differenceofground.filter"
+               template="Cosmotec_ProductView::product/tabs/difference-of-the-ground-and-floatin.phtml"
+               group="detailed_info">
+            <arguments>
+                <argument name="title" xsi:type="string">The difference of the ground and floatin</argument>
+            </arguments>
+        </block>
+    </referenceBlock>
+    <referenceContainer name="content">
+            <container name="product.info.side.wrapper"
+                       htmlTag="div"
+                       htmlClass="product-info-side-wrapper"
+                       after="product.info.main">
+
+                  <block class="Cosmotec\ProductView\Block\BasicInformation"
+                       name="cosmotec.product.basicinformation"
+                       template="Cosmotec_ProductView::product/basic-information.phtml"/>
+            </container>
+
+
+            <block  class="Magento\Catalog\Block\Product\ProductList\Related"
+                    name="catalog.product.connection.parts"
+                    template="Magento_Catalog::product/connection-parts.phtml" before="catalog.product.related"/>
+
+            <block  class="Magento\Catalog\Block\Product\ProductList\Related"
+                    name="catalog.product.related"
+                    template="Magento_Catalog::product/related.phtml" after="-"/>
+
+      </referenceContainer>
+
+
+
+        
+      <referenceBlock name="product.info.review" remove="true" />
+      <referenceBlock name="reviews.tab" remove="true" />
+      <referenceBlock name="product.attributes" remove="true" />
+      <move element="page.main.title" destination="columns.top" after="breadcrumbs"/>
+      
+
+
+    </body>
+</page>

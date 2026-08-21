@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+
+<head>
+    <css src="Cosmotec_VariantFilter::css/variant-filter.css"/>
+</head>
+
+<body>
+    
+<!-- 
+      <move element="page.main.title" destination="columns.top" before="-"/>
+      <move element="breadcrumbs" destination="page.main.title" before="page.main.title" />
+      -->
+    <referenceBlock name="product.info.details">
+        <block class="Cosmotec\VariantFilter\Block\Product\VariantFilter"
+               name="cosmotec.variant.filter"
+               template="Cosmotec_VariantFilter::product/variant-filter.phtml"
+               group="detailed_info">
+            <arguments>
+                <argument name="title" xsi:type="string">Model List</argument>
+            </arguments>
+        </block>
+    </referenceBlock>
+
+    
+
+
+</body>
+</page>

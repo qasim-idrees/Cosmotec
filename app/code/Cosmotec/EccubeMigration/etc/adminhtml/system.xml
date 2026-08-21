@@ -1,0 +1,206 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <tab id="cosmotec" translate="label" sortOrder="500">
+            <label>Cosmotec</label>
+        </tab>
+        <section id="cosmotec_eccube_migration"
+                 translate="label"
+                 type="text"
+                 sortOrder="500"
+                 showInDefault="1"
+                 showInWebsite="0"
+                 showInStore="0">
+            <class>separator-top</class>
+            <label>EC-CUBE Migration</label>
+            <tab>cosmotec</tab>
+            <resource>Cosmotec_EccubeMigration::config</resource>
+
+            <group id="general"
+                   translate="label"
+                   type="text"
+                   sortOrder="10"
+                   showInDefault="1"
+                   showInWebsite="0"
+                   showInStore="0">
+                <label>General</label>
+                <field id="enabled"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="10"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Enable Migration Module</label>
+                    <comment>Disabling prevents any CLI import/sync command from running.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="dry_run"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="20"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Dry Run by Default</label>
+                    <comment>When enabled, CLI commands run in dry-run mode unless --dry-run=0 is explicitly passed.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="logging_enabled"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="30"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Enable Logging</label>
+                    <comment>Writes to var/log/eccube_import.log, eccube_sync.log and eccube_error.log.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="batch_size"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="40"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Batch Size</label>
+                    <comment>Number of records read/processed per batch. Default: 100.</comment>
+                    <validate>validate-digits validate-greater-than-zero</validate>
+                </field>
+                <field id="image_folder"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="50"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>EC-CUBE Image Folder Path</label>
+                    <comment><![CDATA[<strong>Absolute</strong> filesystem path, on this Magento server, to the EC-CUBE image directory - normally &lt;eccube-root&gt;/html/upload/save_image. A relative value resolves against the CLI working directory and will fail. The path must exist, be a directory, and be readable by the PHP user. EC-CUBE stores only the bare filename, so this setting supplies the root.]]></comment>
+                </field>
+                <field id="magento_root_category_id"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="60"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Magento Root Category ID</label>
+                    <comment>Category ID that EC-CUBE top-level categories (parent_category_id IS NULL) are imported under. This is normally your store's root category (e.g. 2), not Magento's absolute root category (1).</comment>
+                    <validate>validate-digits validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="cron"
+                   translate="label"
+                   type="text"
+                   sortOrder="15"
+                   showInDefault="1"
+                   showInWebsite="0"
+                   showInStore="0">
+                <label>Scheduled Jobs</label>
+                <field id="enable_scheduled_import"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="10"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Enable Scheduled Full Import</label>
+                    <comment>Runs the full import pipeline (categories, group products, simple products, group relations, images, inventory) on the schedule defined in etc/crontab.xml (default: daily at 02:00).</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="enable_scheduled_sync"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="20"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Enable Scheduled Sync</label>
+                    <comment>Runs the incremental sync pipeline (categories, group products, simple products, inventory, images) on the schedule defined in etc/crontab.xml (default: hourly).</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
+
+            <group id="connection"
+                   translate="label"
+                   type="text"
+                   sortOrder="20"
+                   showInDefault="1"
+                   showInWebsite="0"
+                   showInStore="0">
+                <label>EC-CUBE Database Connection</label>
+                <field id="host"
+                       translate="label"
+                       type="text"
+                       sortOrder="10"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Host</label>
+                </field>
+                <field id="port"
+                       translate="label"
+                       type="text"
+                       sortOrder="20"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Port</label>
+                    <validate>validate-digits</validate>
+                </field>
+                <field id="database"
+                       translate="label"
+                       type="text"
+                       sortOrder="30"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Database Name</label>
+                </field>
+                <field id="username"
+                       translate="label"
+                       type="text"
+                       sortOrder="40"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Username</label>
+                </field>
+                <field id="password"
+                       translate="label"
+                       type="obscure"
+                       sortOrder="50"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Password</label>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                </field>
+                <field id="charset"
+                       translate="label"
+                       type="text"
+                       sortOrder="60"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Charset</label>
+                    <comment>Default: utf8mb4</comment>
+                </field>
+                <field id="timeout"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="70"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Connection Timeout (seconds)</label>
+                    <comment>PDO::ATTR_TIMEOUT. Default: 5.</comment>
+                    <validate>validate-digits</validate>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

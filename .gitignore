@@ -1,0 +1,16 @@
+/app/etc
+/bin/
+/dev/
+/generated/
+/lib/
+/phpserver/
+/pub/
+/setup/
+/var/
+/vendor/
+/app/autoload.php
+/app/bootstrap.php
+/app/etc/env.php
+*.log
+.DS_Store
+auth.json

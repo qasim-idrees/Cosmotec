@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Backend:etc/menu.xsd">
+    <menu>
+        <add id="Cosmotec_EccubeMigration::migration"
+             title="EC-CUBE Migration"
+             translate="title"
+             module="Cosmotec_EccubeMigration"
+             sortOrder="500"
+             resource="Cosmotec_EccubeMigration::migration"/>
+        <add id="Cosmotec_EccubeMigration::dashboard"
+             title="Dashboard"
+             translate="title"
+             module="Cosmotec_EccubeMigration"
+             sortOrder="10"
+             parent="Cosmotec_EccubeMigration::migration"
+             action="cosmotec_eccube/dashboard/index"
+             resource="Cosmotec_EccubeMigration::dashboard"/>
+        <add id="Cosmotec_EccubeMigration::mapping"
+             title="Entity Mapping"
+             translate="title"
+             module="Cosmotec_EccubeMigration"
+             sortOrder="20"
+             parent="Cosmotec_EccubeMigration::migration"
+             action="cosmotec_eccube/mapping/index"
+             resource="Cosmotec_EccubeMigration::mapping"/>
+        <add id="Cosmotec_EccubeMigration::sync_history"
+             title="Synchronization History"
+             translate="title"
+             module="Cosmotec_EccubeMigration"
+             sortOrder="30"
+             parent="Cosmotec_EccubeMigration::migration"
+             action="cosmotec_eccube/synchistory/index"
+             resource="Cosmotec_EccubeMigration::sync_history"/>
+        <add id="Cosmotec_EccubeMigration::logs"
+             title="Logs"
+             translate="title"
+             module="Cosmotec_EccubeMigration"
+             sortOrder="40"
+             parent="Cosmotec_EccubeMigration::migration"
+             action="cosmotec_eccube/logs/index"
+             resource="Cosmotec_EccubeMigration::logs"/>
+    </menu>
+</config>

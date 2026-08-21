@@ -1,0 +1,182 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+
+    <!-- Configuration -->
+    <preference for="Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface"
+                type="Cosmotec\EccubeMigration\Model\Config\ModuleConfig"/>
+
+    <!--
+        Note: Cosmotec\EccubeMigration\Model\Connection\EccubeConnectionInterface
+        is intentionally NOT given a preference here. Its implementation,
+        EccubeConnection, takes host/port/db/user/password/charset/timeout as
+        scalar constructor arguments resolved from admin configuration at
+        runtime; it is only ever built via EccubeConnectionFactory::create()
+        (plain `new`, not the ObjectManager). Adding a preference would let
+        something accidentally auto-wire EccubeConnection directly, which
+        would fail because the ObjectManager cannot supply those scalars.
+    -->
+
+    <!-- Repositories -->
+    <preference for="Cosmotec\EccubeMigration\Api\CategoryRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\CategoryRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ItemRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductClassRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductClassRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ImageRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ImageRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\CategoryMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\CategoryMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\SyncHistoryRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ItemMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceProviderInterface"
+                type="Cosmotec\EccubeMigration\Model\Product\ProductReferenceProvider"/>
+    <preference for="Cosmotec\EccubeMigration\Api\MediaMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\MediaMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductReferenceRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductReferenceMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\MediaRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\MediaRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\SpecificationMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\SpecificationMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\SpecificationRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\SpecificationRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ImageMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ImageMapRepository"/>
+
+    <!--
+        Logger channels.
+
+        ImportLogger -> var/log/eccube_import.log (info and above)
+        SyncLogger   -> var/log/eccube_sync.log (info and above)
+        Both also attach ErrorHandler so error-level entries additionally
+        land in var/log/eccube_error.log, giving a single place to see
+        every failure across both import and sync without duplicating
+        error-handling code in each pipeline.
+    -->
+    <type name="Cosmotec\EccubeMigration\Logger\ImportLogger">
+        <arguments>
+            <argument name="name" xsi:type="string">eccubeImport</argument>
+            <argument name="handlers" xsi:type="array">
+                <item name="import" xsi:type="object">Cosmotec\EccubeMigration\Logger\Handler\ImportHandler</item>
+                <item name="error" xsi:type="object">Cosmotec\EccubeMigration\Logger\Handler\ErrorHandler</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Cosmotec\EccubeMigration\Logger\SyncLogger">
+        <arguments>
+            <argument name="name" xsi:type="string">eccubeSync</argument>
+            <argument name="handlers" xsi:type="array">
+                <item name="sync" xsi:type="object">Cosmotec\EccubeMigration\Logger\Handler\SyncHandler</item>
+                <item name="error" xsi:type="object">Cosmotec\EccubeMigration\Logger\Handler\ErrorHandler</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        Strategy Pattern (spec requirement): the pool below is the single
+        place that knows which Item -> Magento-parent-product strategies
+        exist. Today only 'grouped' is registered (the confirmed mapping).
+        Adding Configurable or Bundle support later means implementing
+        Model\Mapper\Strategy\ProductTypeStrategyInterface and adding one
+        more <item> line here — ItemMapper, ItemImporter and the CLI
+        command are all strategy-agnostic and need no changes.
+    -->
+    <type name="Cosmotec\EccubeMigration\Model\Mapper\Strategy\ProductTypeStrategyPool">
+        <arguments>
+            <argument name="strategies" xsi:type="array">
+                <item name="grouped" xsi:type="object">Cosmotec\EccubeMigration\Model\Mapper\Strategy\GroupedProductStrategy</item>
+            </argument>
+            <argument name="defaultTypeId" xsi:type="string">grouped</argument>
+        </arguments>
+    </type>
+
+    <!--
+        Superseded by real DataProvider classes in Ui/DataProvider/ (each
+        extending Magento\Ui\DataProvider\AbstractDataProvider with an
+        explicit getData() override). The generic
+        Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider
+        virtualType approach below did not reliably serialize our
+        AbstractModel-based collection items for the grid. Left here,
+        commented out, rather than deleted, so the two approaches can be
+        compared if grid issues come up again.
+
+    <virtualType name="Cosmotec\EccubeMigration\Ui\DataProvider\CategoryMapDataProvider"
+                 type="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider">
+        <arguments>
+            <argument name="collection" xsi:type="object" shared="false">Cosmotec\EccubeMigration\Model\ResourceModel\CategoryMap\Collection</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="Cosmotec\EccubeMigration\Ui\DataProvider\ItemMapDataProvider"
+                 type="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider">
+        <arguments>
+            <argument name="collection" xsi:type="object" shared="false">Cosmotec\EccubeMigration\Model\ResourceModel\ItemMap\Collection</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="Cosmotec\EccubeMigration\Ui\DataProvider\ProductMapDataProvider"
+                 type="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider">
+        <arguments>
+            <argument name="collection" xsi:type="object" shared="false">Cosmotec\EccubeMigration\Model\ResourceModel\ProductMap\Collection</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="Cosmotec\EccubeMigration\Ui\DataProvider\ImageMapDataProvider"
+                 type="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider">
+        <arguments>
+            <argument name="collection" xsi:type="object" shared="false">Cosmotec\EccubeMigration\Model\ResourceModel\ImageMap\Collection</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="Cosmotec\EccubeMigration\Ui\DataProvider\SyncHistoryDataProvider"
+                 type="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider">
+        <arguments>
+            <argument name="collection" xsi:type="object" shared="false">Cosmotec\EccubeMigration\Model\ResourceModel\SyncHistory\Collection</argument>
+        </arguments>
+    </virtualType>
+    -->
+
+    <type name="Magento\Catalog\Api\ProductRepositoryInterface">
+        <plugin name="cosmotec_eccube_product_references"
+                type="Cosmotec\EccubeMigration\Plugin\AddProductReferencesToProduct"
+                sortOrder="10"/>
+    </type>
+
+    <!-- CLI commands -->
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="cosmotecEccubeTestConnection" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\TestConnectionCommand</item>
+                <item name="cosmotecEccubeValidateCategories" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ValidateCategoriesCommand</item>
+                <item name="cosmotecEccubeImportCategories" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportCategoriesCommand</item>
+                <item name="cosmotecEccubeValidateProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ValidateProductsCommand</item>
+                <item name="cosmotecEccubeImportGroupProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportGroupProductsCommand</item>
+                <item name="cosmotecEccubeImportSimpleProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportSimpleProductsCommand</item>
+                <item name="cosmotecEccubeImportProductRelations" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductRelationsCommand</item>
+                <item name="cosmotecEccubeImportImages" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportImagesCommand</item>
+                <item name="cosmotecEccubeValidateInventory" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ValidateInventoryCommand</item>
+                <item name="cosmotecEccubeImportInventory" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportInventoryCommand</item>
+                <item name="cosmotecEccubeSyncCategories" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncCategoriesCommand</item>
+                <item name="cosmotecEccubeSyncGroupProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncGroupProductsCommand</item>
+                <item name="cosmotecEccubeSyncSimpleProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncSimpleProductsCommand</item>
+                <item name="cosmotecEccubeSyncInventory" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncInventoryCommand</item>
+                <item name="cosmotecEccubeSyncImages" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncImagesCommand</item>
+                <item name="cosmotecEccubeStatus" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\StatusCommand</item>
+                <item name="cosmotecEccubeReindex" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ReindexCommand</item>
+                <item name="cosmotecEccubeAnalyzeAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeAttributesCommand</item>
+                <item name="cosmotecEccubeAnalyzeAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeAttributeSetsCommand</item>
+                <item name="cosmotecEccubeImportAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportAttributesCommand</item>
+                <item name="cosmotecEccubeAnalyzeMedia" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeMediaCommand</item>
+                <item name="cosmotecEccubeDiagnoseProduct" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseProductCommand</item>
+                <item name="cosmotecEccubeDiagnoseGallery" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseGalleryCommand</item>
+                <item name="cosmotecEccubeImportProductReferences" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductReferencesCommand</item>
+            </argument>
+        </arguments>
+    </type>
+</config>

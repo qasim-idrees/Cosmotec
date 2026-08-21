@@ -1,0 +1,14 @@
+<?php
+/** @var $block \Cosmotec\ProductView\Block\Product\Simple */
+$product = $block->getProduct();
+?>
+
+<?php  if ($product): ?>
+    <div class="simple-product-contact">
+        <div class="info-line-1">
+            <a href="https://cosmotec.us/pages/contact-us?id=<?= $product->getId(); ?>" class="action contact"  >
+                <span><?= $escaper->escapeHtml(__('Inquiry for this product')) ?></span>
+            </a>
+        </div>
+    </div>
+<?php endif; ?>

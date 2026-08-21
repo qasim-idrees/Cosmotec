@@ -1,0 +1,136 @@
+<?php
+/**
+ * DISCLAIMER
+ *
+ * Do not edit or add to this file if you wish to upgrade Smile ElasticSuite to newer
+ * versions in the future.
+ *
+ * @category  Smile
+ * @package   Smile\ElasticsuiteCatalog
+ * @author    Aurelien FOUCRET <aurelien.foucret@smile.fr>
+ * @copyright 2020 Smile
+ * @license   Open Software License ("OSL") v. 3.0
+ */
+
+/**
+ * Template for layer navigation view
+ *
+ * @var $block \Smile\ElasticsuiteCatalog\Block\Navigation
+ */
+?>
+
+<?php if ($block->canShowBlock()) : ?>
+    <?php $activeFilters = $block->getActiveFilters(); ?>
+    <div class="block filter" id="layered-filter-block"  >
+        <?php $filtered = count($block->getLayer()->getState()->getFilters()) ?>
+        <!-- <div class="block-title filter-title" data-count="<?= /* @escapeNotVerified */ $filtered ?>">
+            <strong data-role="title"><?php /* @escapeNotVerified */ echo __('Shop By') ?></strong>
+        </div> -->
+<?php $skipGroupFilters = ['Category', 'Price']; ?>
+<?php $skipAttributeFilters = ['price']; ?>
+        <div class="block-content filter-content">
+            <?php ///echo $block->getChildHtml('state') ?>
+
+            <?php /* if ($block->getLayer()->getState()->getFilters()) : ?>
+                <div class="block-actions filter-actions">
+                    <a href="<?php echo $block->getClearUrl() ?>" class="action clear filter-clear"><span><?php echo __('Clear All') ?></span></a>
+                </div>
+            <?php endif; */ ?>
+            <?php $wrapOptions = false; ?>
+            <div id="category_filters">
+            <?php foreach ($block->getFormattedFilters() as $gn => $f) : ?>
+                <?php if (in_array($gn, $skipGroupFilters)) { continue; } ?>
+                <?php if (count($f) > 0): ?>
+                    <?php if (!$wrapOptions) : ?>
+                        <div class="" id="narrow-by-list" data-role="content"  >
+                            <?php $wrapOptions = true;?>
+                    <?php endif; ?>
+                    <?php $showGroup = false; ?>
+                    
+                    <?php foreach ($f as $filter): ?>
+                        <?php $attributeCode = "default0"; ?>
+                        <?php if ($attributeModel = $filter->getData('attribute_model')): ?>
+                            
+                            <?php if ($attributeCode = $attributeModel->getAttributeCode()): ?>
+                                <?php $attributeCode;?>
+                                <?php if (in_array($attributeCode, $skipAttributeFilters)) { continue; } ?>
+                            <?php endif;?>
+                        <?php endif;?>
+                        <?php if ($filter->getItemsCount()) : ?>
+                            <?php if (!$showGroup): ?>
+                                    <div class="groups <?php echo $gn;?>">
+                                    <?php $showGroup = true; ?>
+                                    <?php if (count($f) > 1): ?>
+                                        <div class="group-title"><?php echo $gn;?></div>
+                                    <?php endif; ?>
+                            <?php endif; ?>
+                            
+                            
+                            <?php if (count($f) <= 1): ?>
+                                <div class="group-title"><?= /* @escapeNotVerified */ __($filter->getName()) ?></div>    
+                            <?php endif; ?>
+                            <div class="filter-group group-<?php echo $attributeCode; ?> open">
+                                <?php if (count($f) > 1): ?>
+                                    <div class="filter-title">
+                                        <input class="filter-group-checkbox" id="<?php echo $attributeCode; ?>" type="checkbox" value="<?php echo $attributeCode; ?>" />
+                                        <label for="<?php echo $attributeCode; ?>"><span><?= /* @escapeNotVerified */ __($filter->getName()) ?></span></label>
+                                        <span class="filter-arrow-class"></span>
+                                    </div>
+                                <?php endif; ?>
+                                <?php $counter = 0; ?>
+                                <?php $filterItems = $filter->getItems(); ?>
+                                <ul class="filter-options">
+                                <?php foreach ($filterItems as $key => $filterItem) : ?>
+                                    <?php ///echo '<pre>'.get_class($filterItem)."<br />";  print_r(get_class_methods(get_class($filterItem))); 
+                                     ///echo "<br />"; print_r($filterItem->getData()).'</pre>';?>
+                                    <?php if ($filterItem->getCount() > 0): ?>
+                                        <li>
+                                            <a href="<?php echo $block->escapeUrl($filterItem->getUrl()) ?>">
+                                                <input id="<?php echo $attributeCode . $counter; ?>"  data-attr="<?php echo $attributeCode; ?>" value="<?php /* @escapeNotVerified */ echo $filterItem->getValue() ?>" type="checkbox"  onclick="event.preventDefault(); window.location='<?= $block->escapeUrl($filterItem->getUrl()) ?>'" <?php if($filterItem->getIsSelected()) : ?> checked="checked" <?php endif; ?> />
+                                            
+                                            
+                                            
+                                            <label for="<?php echo $attributeCode . $counter++; ?>">
+                                                <span><?php /* @escapeNotVerified */ echo $filterItem->getLabel() ?> (<?php echo (int)$filterItem->getCount(); ?>)</span>
+                                            </label>
+                                            </a>
+                                        </li>
+                                    
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                    <?php if ($showGroup): ?>
+                    </div>
+                    <?php endif; ?>
+                    
+                    
+                <?php endif; ?>
+            <?php endforeach; ?>
+
+           
+            <?php if ($wrapOptions) : ?>
+                </div>
+            <?php else : ?>
+                <script>
+                    require([
+                        'jquery'
+                    ], function ($) {
+                        $('#layered-filter-block').addClass('filter-no-options');
+                    });
+                </script>
+            <?php endif; ?>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<script type="text/x-magento-init">
+{
+    "*": {
+        "Cosmotec_ElasticSuiteFix/js/filter-toggle": {}
+    }
+}
+</script>
