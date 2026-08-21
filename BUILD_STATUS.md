@@ -1659,4 +1659,30 @@ would violate the project's "never invent translations" rule.
 ### Status
 
 Attributes + Options: **complete, executed, and fully verified** against
-real production-scale data. Next: Attribute Sets.
+real production-scale data.
+
+---
+
+## Round 30 — Attribute Sets EXECUTED and verified
+
+Dry-run (`Created: 8, Updated: 0, Skipped: 0, Errors: 0`) confirmed zero
+writes, then executed (`Created: 8, Updated: 0, Skipped: 0, Errors: 0` -
+identical, 3.3s).
+
+### Full verification (live)
+
+| Check | Result |
+|---|---|
+| Attribute sets created | Feedthrough(10), Vacuum Component(11), Isolator(12), Vacuum Valve(13), Motion Feedthrough(14), Others(15), Limited(16), Viewport(17) - 8/8, correct names |
+| Attribute count per set | Matches `eccube_attribute_set_map.specification_count` exactly for all 8 (e.g. Vacuum Component: 193 `eccube_spec_*` attributes assigned, matching the analyze-time projection exactly) |
+| `eccube_attribute_set_map` | 8 rows, correct top-level category ids (1,2,3,4,5,7,241,383), correct Magento set ids, `status=imported`, no errors |
+| Duplicate set names within `catalog_product` | none (an initial unscoped check flagged a false positive across *other* entity types' own "Default" sets - re-checked scoped correctly, confirmed clean) |
+| `Default` (id 4) / `Coaxial` (id 9) | untouched - 59 / 76 attributes respectively, Coaxial's 76 matching the count originally discovered when `ct_*` was first found, confirming no drift |
+| `ct_*` | still exactly 17 |
+| EC-CUBE source | unchanged - `analyze:attribute-sets` re-run identical to every prior measurement |
+| Idempotency | re-ran dry-run: `Created: 0, Updated: 0, Skipped: 8` - content-hash skip working correctly |
+
+### Status
+
+Attribute Sets: **complete, executed, and fully verified.** Next:
+ITEM-scope specification values (Grouped Products).
