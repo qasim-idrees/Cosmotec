@@ -14,6 +14,7 @@ use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
 use Cosmotec\EccubeMigration\Console\ExecuteModeResolver;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\ProductAttributeValueImporter;
+use Magento\Framework\App\State;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -35,7 +36,8 @@ class ImportProductAttributeValuesCommand extends Command
     public function __construct(
         private readonly ProductAttributeValueImporter $importer,
         private readonly EccubeConfigProviderInterface $config,
-        private readonly ExecuteModeResolver $executeModeResolver
+        private readonly ExecuteModeResolver $executeModeResolver,
+        private readonly State $appState
     ) {
         parent::__construct('cosmotec:eccube:import:product-attribute-values');
     }
@@ -51,6 +53,18 @@ class ImportProductAttributeValuesCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // Product-entity save (via magentoProductRepository->save())
+        // requires an area code to be set - a plain CLI invocation has
+        // none by default, unlike cron. Same guard/root cause as
+        // ImportImagesCommand's media gallery write, now proven
+        // necessary here too (live-reproduced: "Area code is not set"
+        // on every row before this guard existed).
+        try {
+            $this->appState->getAreaCode();
+        } catch (\Throwable) {
+            $this->appState->setAreaCode('adminhtml');
+        }
+
         if (!$this->config->isEnabled()) {
             $output->writeln('<error>The EC-CUBE Migration module is disabled in Stores > Configuration.</error>');
 

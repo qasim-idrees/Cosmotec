@@ -1684,5 +1684,69 @@ identical, 3.3s).
 
 ### Status
 
-Attribute Sets: **complete, executed, and fully verified.** Next:
-ITEM-scope specification values (Grouped Products).
+Attribute Sets: **complete, executed, and fully verified.**
+
+---
+
+## Round 31 — area-code fix + CRITICAL false-success finding (attribute-set assignment gap)
+
+### Area-code bug found and fixed
+
+`import:item-attribute-values --execute` failed all 878 writable items with
+`"Area code is not set"` - the identical root cause/fix class as the
+media milestone's `MediaImporter`/`ImportImagesCommand` issue, now found
+in the newer importer family. Confirmed precisely which of the 12
+commands actually call `magentoProductRepository->save()` (only these
+need the guard): `ImportItemAttributeValuesCommand`,
+`ImportProductAttributeValuesCommand`, `ImportRelatedProductsCommand`,
+and their 3 `sync:*` counterparts - 6 files. `ImportConnectionPartsCommand`
+verified to never touch product save (writes only to a plain map table)
+so deliberately not touched; `ImportAttributesCommand`/`ImportAttributeSetsCommand`
+already empirically proven to work without it. Fix: same
+try/`getAreaCode()`/catch/`setAreaCode('adminhtml')` guard already
+proven in `ImportImagesCommand`, added to exactly these 6. Re-ran
+`import:item-attribute-values --execute`: no more area-code errors,
+"Written: 878, Errors: 0" (see below for why this number was still
+misleading).
+
+### CRITICAL finding: attribute-set assignment gap causes 100% silent data loss
+
+Despite `Written: 878, Errors: 0`, direct verification found **zero**
+rows in `catalog_product_entity_int`/`catalog_product_entity_varchar`
+for any `eccube_spec_*` attribute anywhere in the catalog. Root cause
+confirmed with certainty: every Grouped Product (1,092) and every Simple
+Product (17,982) is on `attribute_set_id=4` ("Default"), and **zero**
+`eccube_spec_*` attributes are assigned to that set (they only belong to
+the 8 new category-derived sets created in Round 30). Magento's product
+save silently drops `setData()` values for attributes outside the
+product's current attribute set - no exception, no warning - which is
+exactly why the importer reported clean success while persisting
+nothing. This is the direct, now-empirically-proven consequence of the
+previously-documented (Round 24/25) "`AttributeSetResolver` not wired
+into `ItemMapper`/`ProductMapper`" limitation - testing has now
+demonstrated it causes complete silent data loss, crossing the
+project's own stated bar for escalation.
+
+Secondary consequence: `eccube_item_map.specification_value_hash` was
+set (non-null) for all 878 items despite no real data existing,
+which would make the importer's own idempotency check wrongly skip
+them on a retry. Not yet reset - addressed in the next round per the
+user's explicit reset procedure (identify exactly which rows, reset
+only those, verify zero EAV values and null hashes before retrying).
+
+### Deployment context clarified by the user - changes the fix strategy
+
+This Magento instance is **staging only**; the real deployment target is
+an *empty* Magento catalog populated entirely by this migration module.
+The existing `Default`/`Coaxial` attribute-set assignment on current
+staging products is therefore test data, not a preservation target -
+explicit permission granted to reassign/manipulate staging product
+attribute sets aggressively while developing and verifying the real fix
+(build the actual `AttributeSetImporter`-driven product-assignment step,
+verified via a controlled experiment first). `ct_*` attributes
+themselves remain off-limits regardless.
+
+### Status
+
+Area-code fix: verified working. Attribute-set assignment gap: root
+cause confirmed, fix strategy set by the user, implementation next.
