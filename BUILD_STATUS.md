@@ -2163,9 +2163,40 @@ Coaxial set (`attribute_set_id=9`) total product count still 84.
 Cross-checked three more products via `ProductRepositoryInterface::getById(
 ..., forceReload: true)` against direct SQL - all agree.
 
+## Round 39 — real ITEM-scope attribute-value import (the actual Round 31 fix, now proven)
+
+Ran `import:item-attribute-values --execute` for real (no `--limit`), for
+the first time with every product on its correct attribute set and the
+verify-before-hash fix in place:
+
+`Written: 842, Updated: 0, Skipped: 214, Errors: 36` (total 1,092).
+
+This is genuine, verified success - not the Round 31 false positive:
+
+- `eccube_item_map` rows with `specification_value_hash` set: **842**,
+  matching the CLI report exactly.
+- Distinct Grouped Products carrying real `eccube_spec_*` EAV data across
+  all four EAV value tables (`int`/`varchar`/`text`/`decimal`): **842** -
+  full reconciliation, zero gap. (A first spot-check checked only `int`/
+  `varchar` and found 841, one short - traced to product 2374 /
+  `eccube_spec_11`+`eccube_spec_12`, whose values live in
+  `catalog_product_entity_text` because they are multiselect attributes,
+  which Magento backs with `text`, not `int`/`varchar`. Not a bug - the
+  importer's own verification reads via `getData()`, which is
+  backend-type-agnostic; the gap was only in the ad-hoc spot-check query.)
+- The 36 errors are exactly the 36 uncategorized items identified in Round
+  32/35/38 (`needsReview` in the assignment step) - source ids confirmed to
+  match exactly (162, 165-167, 170, 577-580, 3781, 3822-3849 minus a few,
+  etc.). They fail verification because they are still on the Default set
+  (no top-level category to resolve a target set from), which has none of
+  the `eccube_spec_*` attributes - correct, expected behavior, not a
+  regression. They remain retryable once a fallback-bucket decision is made
+  for uncategorized items (still open, tracked since Round 32).
+- 214 skipped: items with no CREATE-classified resolved values yet (pending
+  attributes/options) or already-matching hash - normal, retried
+  automatically on the next run.
+
 ### Next
 
-Re-run `import:item-attribute-values` / `import:product-attribute-values`
-for real now that products are on their correct attribute sets - this is
-the actual retry of the Round 31/34/35 false-success rows, now that the
-root cause (wrong attribute set) is fixed.
+Real `import:product-attribute-values --execute` (Simple Products, PRODUCT
+scope), same verification discipline.
