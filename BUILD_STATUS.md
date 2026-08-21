@@ -2238,8 +2238,50 @@ by position) against its Magento multiselect attribute
 `"85,87"` - exact match, confirming both the lossless positional record and
 the layered-navigation-facing comma-joined multiselect value agree.
 
+## Round 41 — Related Products and Connection Parts, executed and verified
+
+Both were already fully implemented from the earlier read-only-prep phase
+(`RelatedProductImporter`, `ConnectionPartImporter`, their commands and
+Sync wrappers) - never before run with `--execute`. Ran the full
+dry-run→execute→verify→idempotency sequence on each.
+
+**Related Products** (`dtb_related_product` → Magento native Related
+Products, per the confirmed mapping):
+- Dry-run and real `--execute` agreed exactly: `Linked: 22313, Skipped:
+  39304, Errors: 0` (39,304 skipped are relations whose target product
+  isn't imported/mapped yet - retried automatically as coverage grows).
+- Verified directly: `eccube_related_product_map` has 22,313
+  `status=imported` rows; `catalog_product_link` (Magento's native link
+  table - stored under the DB code `relation`, not `related`; `related` is
+  only the `ProductLinkInterface` API constant, this is normal Magento
+  naming, not a bug) has 22,315 rows total (22,313 new + 2 pre-existing).
+  Spot-checked product 2382 (the media-milestone SKU 10319 product) via
+  `ProductRepositoryInterface`: its related SKUs read back correctly and
+  include the expected target.
+- Idempotency re-run: `Linked: 0, Skipped: 61617, Errors: 0`.
+  `catalog_product_link` row count unchanged at 22,315, zero duplicate
+  `(product_id, linked_product_id, link_type_id)` triples.
+
+**Connection Parts** (`dtb_coupling_product` → the module's own
+`connection_part` mechanism, explicitly NOT Magento's Related Products, per
+the standing architectural decision):
+- Dry-run and real `--execute` agreed: `Imported: 707, Skipped: 155, Errors:
+  0`.
+- Verified directly: `eccube_coupling_product_map` has 707
+  `status=imported` rows. Confirmed `catalog_product_link` stayed at exactly
+  22,315 rows (unchanged by this step) - proof Connection Parts never
+  touches the Related Products mechanism, as required.
+- Idempotency re-run: `Imported: 0, Skipped: 862, Errors: 0`.
+- End-to-end surface check: `AddConnectionPartsToProduct` plugin attaches
+  `eccube_connection_parts` extension data to Grouped Products via
+  `ProductRepositoryInterface` - confirmed for product 1290, 10 connection
+  parts read back correctly with source coupling id, target Magento product
+  id and sort order.
+
 ### Next
 
-Continue the remaining milestone components per the user's Step 9 order:
-Related Products, Connection Parts, then Sync - each through the same
-dry-run→execute→verify→idempotency→sync sequence.
+Sync commands for the components executed so far (item/product attribute
+values, related products, connection parts), then broader staging-suitable
+testing (Admin, storefront, layered navigation, repeated import/sync,
+partial-failure retry) per Step 10, plus the still-open fallback-bucket
+decision for the 36 uncategorized items.
