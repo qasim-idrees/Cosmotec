@@ -83,7 +83,8 @@ class CouplingProductMapRepository implements CouplingProductMapRepositoryInterf
     {
         $collection = $this->collectionFactory->create();
         $collection->getSelect()->reset(\Magento\Framework\DB\Select::COLUMNS)
-            ->columns('DISTINCT eccube_item_id')
+            ->distinct(true)
+            ->columns('eccube_item_id')
             ->order('eccube_item_id ASC')
             ->limit($limit, $offset);
 

@@ -2278,10 +2278,63 @@ the standing architectural decision):
   parts read back correctly with source coupling id, target Magento product
   id and sort order.
 
+## Round 42 — Sync commands: two more bugs found (one critical), fixed, and repaired
+
+`sync:item-attribute-values` and `sync:product-attribute-values` ran
+cleanly first try (0/0 unexpected errors, fully idempotent - these are
+plain re-run delegates with no separate obsolete-detection logic).
+
+`sync:related-products` and `sync:connection-parts` immediately failed with
+a SQL error: `Unknown column 'main_table.DISTINCT eccube_product_id'`.
+
+**Bug 1 (mechanical, no data impact)**:
+`RelatedProductMapRepository::getDistinctProductIds()` and
+`CouplingProductMapRepository::getDistinctItemIds()` built the DISTINCT
+clause as `->columns('DISTINCT eccube_product_id')` on a Magento
+collection's `Select` - Magento quotes the whole string as a single column
+identifier instead of treating `DISTINCT` as a modifier, producing invalid
+SQL. Fixed with `->distinct(true)->columns('eccube_product_id')`, the
+correct Zend_Db_Select API for this.
+
+**Bug 2 (CRITICAL, real data impact - not EC-CUBE source, but internal
+mapping-table status)**: with bug 1 fixed, both commands ran but
+`markObsoleteForProduct()`/`markObsoleteForItem()` (in `RelatedProductImporter`
+/ `ConnectionPartImporter`) then wrongly marked **24,205**
+`eccube_related_product_map` rows and **all 862**
+`eccube_coupling_product_map` rows as `status=obsolete`, even though
+nothing was removed from EC-CUBE source (confirmed read-only throughout -
+this never touched `dtb_related_product`/`dtb_coupling_product` or any
+Magento catalog data, only this module's own internal mapping-table status
+column). Root cause: the exact same bug class fixed twice already today
+(Round 37) - `AbstractModel::getData()` returns a raw DB string for
+`getEccubeRelatedId()`/`getEccubeCouplingId()`, compared with strict
+`in_array(..., true)` against real `int` values from the DTO layer
+(`RelatedProductInterface::getId()`/`CouplingProductInterface::getId()`).
+Every comparison failed type-wise, so every row looked "not in source" and
+got marked obsolete. Found the identical pattern pre-emptively in
+`ProductReferenceImporter::markObsoleteForProduct()` too (not yet exercised
+- `eccube_product_reference_map` is still empty, 0 rows - so no data was
+corrupted there, but it would have hit the same bug the first time Product
+References is actually run). All three fixed with an `(int)` cast before
+the comparison.
+
+**Repair** (scoped, verified - not a blind reset): for every row left
+`status=obsolete` by the bug, re-checked it against the real EC-CUBE source
+using the now-fixed comparison. Result: **0 of the 25,067 were genuinely
+obsolete** - confirming nothing was actually removed at source, exactly as
+expected. Restored precisely: 22,313 related-product rows and 707
+coupling-part rows back to `imported` (had a Magento id already), 1,892 +
+155 back to `pending` (never had one). Verified after repair: `obsolete`
+count is 0 on both tables, `imported` counts match the original execute
+run's numbers exactly (22,313 / 707), `catalog_product_link` unchanged at
+22,315 throughout (proof the bug never touched real Magento link data,
+only the internal status column), `ct_*` attribute count still 17.
+Re-ran both sync commands after the repair: `Linked: 0, Skipped: 61617,
+Errors: 0` and `Imported: 0, Skipped: 862, Errors: 0` - both idempotent,
+zero new obsolete markings, confirming the fix holds.
+
 ### Next
 
-Sync commands for the components executed so far (item/product attribute
-values, related products, connection parts), then broader staging-suitable
-testing (Admin, storefront, layered navigation, repeated import/sync,
+Broader staging-suitable testing (Admin, storefront, layered navigation,
 partial-failure retry) per Step 10, plus the still-open fallback-bucket
 decision for the 36 uncategorized items.

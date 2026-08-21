@@ -185,7 +185,9 @@ class ConnectionPartImporter implements ImporterInterface
         $obsolete = 0;
 
         foreach ($this->mapRepository->getByItemId($eccubeItemId) as $map) {
-            if (in_array($map->getEccubeCouplingId(), $sourceIds, true)) {
+            // See RelatedProductImporter::markObsoleteForProduct() - same
+            // raw-DB-string-vs-int strict comparison bug.
+            if (in_array((int) $map->getEccubeCouplingId(), $sourceIds, true)) {
                 continue;
             }
 

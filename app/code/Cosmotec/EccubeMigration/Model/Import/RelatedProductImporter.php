@@ -288,7 +288,13 @@ class RelatedProductImporter implements ImporterInterface
         $obsolete = 0;
 
         foreach ($this->mapRepository->getByProductId($eccubeProductId) as $map) {
-            if (in_array($map->getEccubeRelatedId(), $sourceIds, true)) {
+            // AbstractModel::getData() returns a raw DB string, not an int
+            // (despite the getter's phpdoc) - without this cast, every row
+            // would fail the strict in_array() check against $sourceIds
+            // (real ints from the DTO) and be wrongly marked obsolete even
+            // though its source relation still exists. Same bug class as
+            // ItemAttributeSetAssignmentImporter - see BUILD_STATUS.md.
+            if (in_array((int) $map->getEccubeRelatedId(), $sourceIds, true)) {
                 continue;
             }
 

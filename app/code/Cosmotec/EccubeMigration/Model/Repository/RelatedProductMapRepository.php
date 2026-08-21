@@ -83,7 +83,8 @@ class RelatedProductMapRepository implements RelatedProductMapRepositoryInterfac
     {
         $collection = $this->collectionFactory->create();
         $collection->getSelect()->reset(\Magento\Framework\DB\Select::COLUMNS)
-            ->columns('DISTINCT eccube_product_id')
+            ->distinct(true)
+            ->columns('eccube_product_id')
             ->order('eccube_product_id ASC')
             ->limit($limit, $offset);
 

@@ -219,7 +219,9 @@ class ProductReferenceImporter implements ImporterInterface
         $obsolete = 0;
 
         foreach ($this->mapRepository->getByProductId($eccubeProductId) as $map) {
-            if (in_array($map->getEccubeReferenceId(), $sourceIds, true)) {
+            // See RelatedProductImporter::markObsoleteForProduct() - same
+            // raw-DB-string-vs-int strict comparison bug.
+            if (in_array((int) $map->getEccubeReferenceId(), $sourceIds, true)) {
                 continue;
             }
 
