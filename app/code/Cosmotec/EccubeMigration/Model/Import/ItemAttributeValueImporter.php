@@ -136,7 +136,21 @@ class ItemAttributeValueImporter implements ImporterInterface
             }
 
             $isUpdate = $itemMap->getSpecificationValueHash() !== null;
-            $this->persist($magentoProductId, $resolution['values']);
+            $failed = $this->persist($magentoProductId, $resolution['values']);
+
+            if ($failed !== []) {
+                $message = sprintf(
+                    'Verification failed for %d of %d attribute value(s) after save: %s',
+                    count($failed),
+                    count($resolution['values']),
+                    json_encode($failed, JSON_THROW_ON_ERROR)
+                );
+                $result->incrementErrors();
+                $this->logger->error(sprintf('Item %d attribute values failed verification: %s', $item->getId(), $message));
+                $this->recordHistory($context, $item->getId(), $magentoProductId, SyncHistory::STATUS_ERROR, $message, $startTime, $startMemory);
+
+                return;
+            }
 
             $itemMap->setSpecificationValueHash($hash);
             $itemMap->setSpecificationValuesSyncedAt((new \DateTimeImmutable())->format('Y-m-d H:i:s'));
@@ -223,9 +237,21 @@ class ItemAttributeValueImporter implements ImporterInterface
     }
 
     /**
+     * Writes the values, then reloads the product with a forced cache
+     * bypass and re-checks every value against what Magento actually
+     * persisted. Magento's EAV save silently drops values for attributes
+     * outside the product's current attribute set (no exception - the root
+     * cause of the Round 31 false-success bug: "Written: 878, Errors: 0"
+     * with zero real EAV data), and silently coerces an invalid value on a
+     * select/int attribute to 0 instead of failing (confirmed in the Round
+     * 33 controlled experiment). Neither failure mode is detectable from
+     * save() alone, so the caller must never trust a clean save() as proof
+     * of a persisted value - only this comparison is.
+     *
      * @param array<string, int|string> $values
+     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value verified
      */
-    private function persist(int $magentoProductId, array $values): void
+    private function persist(int $magentoProductId, array $values): array
     {
         try {
             $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
@@ -244,6 +270,20 @@ class ItemAttributeValueImporter implements ImporterInterface
         // attribute values from this migration must land at global scope.
         $product->setData('store_id', 0);
         $this->magentoProductRepository->save($product);
+
+        $reloaded = $this->magentoProductRepository->getById($magentoProductId, false, 0, true);
+
+        $failed = [];
+
+        foreach ($values as $code => $expected) {
+            $actual = $reloaded->getData($code);
+
+            if ((string) $actual !== (string) $expected) {
+                $failed[$code] = ['expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        return $failed;
     }
 
     private function toIntOrNull(mixed $value): ?int

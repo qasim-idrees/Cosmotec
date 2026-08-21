@@ -178,9 +178,24 @@ class ProductAttributeValueImporter implements ImporterInterface
             }
 
             $isUpdate = $productMap->getSpecificationValueHash() !== null;
+            $failed = [];
 
             if ($resolution['eavValues'] !== []) {
-                $this->persistEav($magentoProductId, $resolution['eavValues']);
+                $failed = $this->persistEav($magentoProductId, $resolution['eavValues']);
+            }
+
+            if ($failed !== []) {
+                $message = sprintf(
+                    'Verification failed for %d of %d attribute value(s) after save: %s',
+                    count($failed),
+                    count($resolution['eavValues']),
+                    json_encode($failed, JSON_THROW_ON_ERROR)
+                );
+                $result->incrementErrors();
+                $this->logger->error(sprintf('Product %d attribute values failed verification: %s', $eccubeProductId, $message));
+                $this->recordHistory($context, $eccubeProductId, $magentoProductId, SyncHistory::STATUS_ERROR, $message, $startTime, $startMemory);
+
+                return;
             }
 
             $this->persistPositional($resolution['positional'], $magentoProductId);
@@ -283,9 +298,18 @@ class ProductAttributeValueImporter implements ImporterInterface
     }
 
     /**
+     * Writes the values, then reloads the product with a forced cache
+     * bypass and re-checks every value against what Magento actually
+     * persisted. See ItemAttributeValueImporter::persist() for the two
+     * confirmed silent-failure modes this guards against (value dropped for
+     * an attribute outside the product's attribute set; invalid value on a
+     * select attribute coerced to 0) - neither raises an exception, so a
+     * clean save() is never proof of a persisted value on its own.
+     *
      * @param array<string, int|string> $eavValues
+     * @return array<string, array{expected: int|string, actual: mixed}> empty if every value verified
      */
-    private function persistEav(int $magentoProductId, array $eavValues): void
+    private function persistEav(int $magentoProductId, array $eavValues): array
     {
         try {
             $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
@@ -301,6 +325,20 @@ class ProductAttributeValueImporter implements ImporterInterface
         // set explicitly on both the load and the save.
         $product->setData('store_id', 0);
         $this->magentoProductRepository->save($product);
+
+        $reloaded = $this->magentoProductRepository->getById($magentoProductId, false, 0, true);
+
+        $failed = [];
+
+        foreach ($eavValues as $code => $expected) {
+            $actual = $reloaded->getData($code);
+
+            if ((string) $actual !== (string) $expected) {
+                $failed[$code] = ['expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        return $failed;
     }
 
     /**

@@ -1939,3 +1939,51 @@ No genuine architectural ambiguity or unavoidable data-loss risk was found.
 Both findings above are implementation requirements for Steps 5 and 7, not
 stop conditions. Proceeding to Step 5 (verify-before-hash fix in
 `ItemAttributeValueImporter`/`ProductAttributeValueImporter`).
+
+## Round 34 — verify-before-hash fix (ItemAttributeValueImporter / ProductAttributeValueImporter)
+
+`persist()` (Item) and `persistEav()` (Product) now save, then reload the
+product with `ProductRepositoryInterface::getById($id, false, 0, true)`
+(forced cache bypass), and compare every intended value against what was
+actually read back. Any mismatch is returned to the caller instead of being
+silently accepted. `importOne()` in both classes now only sets
+`specification_value_hash` / calls `persistPositional()` when the returned
+mismatch list is empty; on a non-empty list it increments `errors`, logs the
+full expected-vs-actual detail, records `SyncHistory::STATUS_ERROR` with
+that detail as the message, and returns without ever reporting success.
+`ItemAttributeValueSync`/`ProductAttributeValueSync` needed no changes -
+both simply delegate to the importer classes, so the fix covers sync too.
+
+### Deliberate test (both paths, on real data, not a synthetic script)
+
+Used item 1 / Magento product 1290 (one of the original 878 false-success
+rows) directly, with its `specification_value_hash` reset to `NULL` for this
+single identified row only (not the bulk Step-6 reset, which comes next).
+
+**Negative path** (product still on `attribute_set_id=4`, the situation all
+878 rows are actually in): ran
+`bin/magento cosmotec:eccube:import:item-attribute-values --execute --batch-size=1`.
+Result: `Written: 0, Updated: 0, Errors: 1` (previously this reported
+`Written: 1, Errors: 0` under the old code). `eccube_sync_history` recorded
+`status=error` with all 17 attribute codes and their `expected` vs.
+`actual: null` values. `eccube_item_map.specification_value_hash` confirmed
+still `NULL` after the run - no false success recorded.
+
+**Positive path**: reassigned product 1290 to Feedthrough (`attribute_set_id=10`,
+confirmed to carry all 17 of item 1's resolved attribute codes), re-ran the
+same command. Result: `Written: 1, Errors: 0`. Verified independently of the
+command's own report: direct query against `catalog_product_entity_int`
+shows all 17 `eccube_spec_*` rows present with the correct values;
+`ProductRepositoryInterface::getById(1290, false, 0, true)` reads
+`eccube_spec_68 = '238'` correctly; `eccube_item_map.specification_value_hash`
+is set and `specification_values_synced_at` is populated.
+
+Product 1290 was reverted to `attribute_set_id=4` and item 1's hash reset
+back to `NULL` afterward, so this test item re-enters the pool of 878 rows
+needing the Step 6 reset + Step 7 real importer like every other one -
+nothing was left in a special-cased state.
+
+### Next
+
+Step 6: precisely identify and reset the remaining false-success
+`eccube_item_map` rows (878 total, one already reset as part of this test).
