@@ -308,7 +308,7 @@
     </table>
 
     <table name="eccube_coupling_product_map" resource="default" engine="innodb"
-           comment="Maps EC-CUBE dtb_coupling_product (Item -&gt; specific Product, &quot;Connection Parts&quot;) to Magento. Deliberately NOT Magento's built-in related/upsell/cross-sell link types - semantically distinct, per docs/MIGRATION_ASSUMPTIONS.md §3.">
+           comment="Maps EC-CUBE dtb_coupling_product (Item -&gt; specific Product, Connection Parts) to Magento. Deliberately NOT Magento's built-in related/upsell/cross-sell link types - semantically distinct, per docs/MIGRATION_ASSUMPTIONS.md §3.">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
         <column xsi:type="int" name="eccube_coupling_id" unsigned="true" nullable="false" comment="dtb_coupling_product.id"/>
         <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="false" comment="dtb_coupling_product.item_id - the parent Item"/>

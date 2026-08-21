@@ -1342,3 +1342,80 @@ instruction to keep every migration command dry-run by default.
 `setup:upgrade`, `--execute` of anything, `ItemMapper`/`ProductMapper`
 wiring for `AttributeSetResolver`, `ct_*` reconciliation, the
 individual-value-removal limitation noted above.
+
+---
+
+## Round 26 — `setup:upgrade` applied (schema only, verified clean)
+
+Git checkpoint before this round: `0a89eaa` ("Implement specification
+attributes migration"). A fresh Magento DB backup was taken by the user
+before any database-changing command ran.
+
+### First attempt - FAILED, real bug found and fixed
+
+The first `setup:upgrade` run aborted partway through:
+`SQLSTATE[42000]: Syntax error ... near 'Parts") to Magento...'` while
+creating `eccube_coupling_product_map`. Root cause: that table's
+`db_schema.xml` comment contained XML-escaped embedded double quotes
+(`&quot;Connection Parts&quot;`), which decode correctly to a literal
+`"` - but Magento's declarative-schema-to-SQL generator does not escape
+embedded double quotes when building a `COMMENT "..."` clause, so the
+literal quote broke out of the generated SQL string. Grepped the entire
+schema file: this was the only `&quot;` occurrence anywhere - an
+isolated bug, not systemic.
+
+**Resulting partial state after the failure** (verified precisely, not
+assumed): `eccube_attribute_set_map` and `eccube_product_specification_value`
+had been created; `eccube_coupling_product_map` and
+`eccube_related_product_map` had not (the second was never reached - the
+failure aborted the run before it). All 4 new columns on
+`eccube_item_map`/`eccube_product_map` had already been added
+successfully (columns are applied before new tables in Magento's
+declarative-schema apply order). Zero rows anywhere, zero impact on any
+existing Magento or EC-CUBE data - confirmed by direct query, not
+inferred from the error message.
+
+**Fix**: one line changed in `etc/db_schema.xml` - removed the embedded
+quotes from the `eccube_coupling_product_map` comment
+(`&quot;Connection Parts&quot;` -> `Connection Parts`). Nothing else in
+the file touched. `git diff --check` clean; diff reviewed and approved
+before re-running.
+
+### Second attempt - SUCCESS
+
+`setup:upgrade` completed with no errors across all modules (1539-line
+log, zero `error`/`exception`/`fail` matches). `setup:db:status` now
+reports "All modules are up to date."
+
+### Full verification performed (live queries, not assumed)
+
+| Check | Result |
+|---|---|
+| `eccube_attribute_set_map` | EXISTS, 0 rows |
+| `eccube_product_specification_value` | EXISTS, 0 rows |
+| `eccube_coupling_product_map` | EXISTS, 0 rows |
+| `eccube_related_product_map` | EXISTS, 0 rows |
+| `eccube_item_map`/`eccube_product_map` new columns (4 total) | all EXIST |
+| `catalog_product_entity` count | 19,158 (unchanged) |
+| `catalog_category_entity` count | 328 (unchanged) |
+| `customer_entity` / `sales_order` | unaffected |
+| `catalog_product` attribute sets | still 2 (`Default`, `Coaxial`) |
+| `ct_*` attributes | still 17, untouched |
+| `eccube_spec_*` attributes | still 0 - nothing executed |
+| EC-CUBE connection (`cosmotect_production`) | healthy, architecturally never touched by `setup:upgrade` |
+
+Full module lint/validation re-run after the fix: 278 PHP files / 0
+`php -l` errors, `di.xml`/`db_schema.xml`/`db_schema_whitelist.json` all
+valid, module still enabled.
+
+### Status
+
+Schema migration for Attributes/Specifications is **complete and
+verified**. No attribute, option, attribute set, or product value has
+been created yet - `import:attributes --execute` (and every subsequent
+`--execute` step) is still pending your approval. The 3 pending business
+decisions (`ct_*` reconciliation, multiselect + positional storage for
+specs 9/10/11/12/27, `sort_no DESC` + lowest-category_id tie-break) and
+the 2 known limitations (`AttributeSetResolver` not wired into
+`ItemMapper`/`ProductMapper`; individual-value removal not scrubbed)
+remain exactly as documented in Round 24/25 - unchanged by this round.
