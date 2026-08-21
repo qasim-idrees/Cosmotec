@@ -2132,10 +2132,40 @@ item upload_file_id 1124 product referenced in the "Last known media
 blocker" section of this document, now confirmed correctly on the
 Feedthrough set as part of this batch).
 
+## Round 38 — full attribute-set assignment execution (Step 9)
+
+Ran to completion, both sides, `--execute`, no `--limit`:
+
+- `assign:item-attribute-sets`: `Assigned: 1041, Skipped: 15, Errors: 0,
+  Needs review: 36` (total 1,092). The 15 skipped are the Step 8 controlled
+  batch, already correct. The 36 needs-review are the confirmed
+  uncategorized items (Round 32/35) - left on the Default set, not
+  fabricated into a set they don't belong to.
+- `assign:product-attribute-sets`: `Assigned: 17967, Skipped: 15, Errors: 0,
+  Needs review: 0` (total 17,982) - every mapped Simple Product resolved
+  cleanly through its owning item.
+
+Verified directly against the database (not just the CLI's own report):
+
+Grouped Products (`eccube_item_map`-mapped), final `attribute_set_id`
+distribution: Vacuum Component 629, Feedthrough 277, Viewport 60, Others 57,
+Default 36 (exactly the needs-review items), Vacuum Valve 14, Isolator 12,
+Limited 5, Motion Feedthrough 2 - matches the Round 32 report's per-set item
+counts exactly.
+
+Simple Products (`eccube_product_map`-mapped), final distribution: Vacuum
+Component 16,447, Feedthrough 1,124, Viewport 261, Others 70, Isolator 43,
+Vacuum Valve 31, Limited 6 - sums to 17,982, zero remaining on Default.
+
+Untouched, confirmed after the full run: `ct_*` attribute count still 17;
+Coaxial set (`attribute_set_id=9`) total product count still 84.
+
+Cross-checked three more products via `ProductRepositoryInterface::getById(
+..., forceReload: true)` against direct SQL - all agree.
+
 ### Next
 
-Full `--execute` run on both `assign:item-attribute-sets` and
-`assign:product-attribute-sets` (remaining ~1,077 items and ~17,967
-products), then re-run `import:item-attribute-values` /
-`import:product-attribute-values` for real, now that products are on the
-correct attribute sets.
+Re-run `import:item-attribute-values` / `import:product-attribute-values`
+for real now that products are on their correct attribute sets - this is
+the actual retry of the Round 31/34/35 false-success rows, now that the
+root cause (wrong attribute set) is fixed.
