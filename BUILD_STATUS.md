@@ -2227,9 +2227,19 @@ ITEM and PRODUCT scope.** Remaining open item: a fallback-bucket decision
 for the 36 confirmed-uncategorized items (tracked since Round 32), not a
 blocker for continuing the rest of the milestone.
 
+### Multi-value positional storage - verified
+
+`eccube_product_specification_value` (the lossless positional table for the
+5 flagged multi-value specs) has **5,209 rows** written by the Round 40 run.
+Spot-checked a product with 2 positional rows for the same specification
+(eccube product 1041, spec 10, magento product 3360: option ids 85 then 87
+by position) against its Magento multiselect attribute
+(`catalog_product_entity_text`, since multiselect is text-backed): value
+`"85,87"` - exact match, confirming both the lossless positional record and
+the layered-navigation-facing comma-joined multiselect value agree.
+
 ### Next
 
 Continue the remaining milestone components per the user's Step 9 order:
-multi-value positional storage verification, Related Products, Connection
-Parts, then Sync - each through the same
+Related Products, Connection Parts, then Sync - each through the same
 dry-run→execute→verify→idempotency→sync sequence.
