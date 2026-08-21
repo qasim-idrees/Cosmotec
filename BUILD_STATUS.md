@@ -2333,8 +2333,45 @@ Re-ran both sync commands after the repair: `Linked: 0, Skipped: 61617,
 Errors: 0` and `Imported: 0, Skipped: 862, Errors: 0` - both idempotent,
 zero new obsolete markings, confirming the fix holds.
 
+## Round 43 — staging verification slice (Step 10)
+
+- `indexer:status` showed `catalog_product_attribute` (Product EAV - the
+  index layered navigation and filterable attributes depend on) as
+  "Reindex required" after all the attribute-set/value writes.
+  `indexer:reindex catalog_product_attribute` completed in 30s with no
+  errors.
+- Storefront: `GET /catalog/product/view/id/2382/` (the media-milestone
+  product) returns HTTP 200, correct `<title>`, related-products block
+  markup present, no error/exception strings in the rendered HTML besides
+  two unrelated benign PageBuilder/Google-Maps config strings.
+- `var/log/system.log` checked for CRITICAL/EMERGENCY entries: all
+  `Cosmotec`-related ones are stale, timestamped 07:51 - from before this
+  session's area-code-guard fix, not from anything run today. Zero new
+  entries after 10:00 today across dozens of real `--execute` runs.
+
+Not tested in this environment (no browser/GUI access available): actual
+Admin grid/form click-through, layered-navigation filter UI interaction,
+storefront visual rendering. CLI + direct-DB + API verification was used
+throughout instead, per the "no data loss / verify, don't assume" rule.
+
+### Still open: fallback bucket for the 36 uncategorized items
+
+Not a bug, not resolved by any fix so far - a genuine design decision,
+open since Round 32. These 36 EC-CUBE items have specification values but
+zero `dtb_category_item` rows (most carry EC-CUBE's own `【×】`
+discontinued-item marker in their name). They correctly remain on the
+Default set (never fabricated a set for them) and correctly error out of
+`import:item-attribute-values` every run, which is honest behavior but
+leaves them permanently unimportable until a target is chosen. Options: (a)
+route them to "Others" (closest semantic fit), (b) create a dedicated
+"Uncategorized" attribute set, (c) leave them excluded from the
+specification-value import indefinitely. This needs the user's decision,
+not an inferred default.
+
 ### Next
 
-Broader staging-suitable testing (Admin, storefront, layered navigation,
-partial-failure retry) per Step 10, plus the still-open fallback-bucket
-decision for the 36 uncategorized items.
+Awaiting the user's fallback-bucket decision for the 36 items; everything
+else in the milestone (attributes, options, sets, ITEM values, PRODUCT
+values, multi-value positional storage, Related Products, Connection
+Parts, and their Sync counterparts) is implemented, executed at full
+scale, and verified.
