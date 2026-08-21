@@ -10,30 +10,26 @@ declare(strict_types=1);
 
 namespace Cosmotec\EccubeMigration\Model;
 
-use Cosmotec\EccubeMigration\Model\ResourceModel\ItemMap as ItemMapResource;
+use Cosmotec\EccubeMigration\Model\ResourceModel\AttributeSetMap as AttributeSetMapResource;
 use Magento\Framework\Model\AbstractModel;
 
 /**
- * @method int getEccubeItemId()
- * @method $this setEccubeItemId(int $eccubeItemId)
- * @method int|null getMagentoProductId()
- * @method $this setMagentoProductId(?int $magentoProductId)
- * @method string|null getSku()
- * @method $this setSku(?string $sku)
+ * @method int getEccubeTopLevelCategoryId()
+ * @method $this setEccubeTopLevelCategoryId(int $id)
+ * @method string getSetName()
+ * @method $this setSetName(string $name)
+ * @method int|null getMagentoAttributeSetId()
+ * @method $this setMagentoAttributeSetId(?int $id)
+ * @method int getSpecificationCount()
+ * @method $this setSpecificationCount(int $count)
  * @method string|null getContentHash()
  * @method $this setContentHash(?string $hash)
  * @method string getStatus()
  * @method $this setStatus(string $status)
- * @method string|null getSpecificationValueHash()
- * @method $this setSpecificationValueHash(?string $hash)
- * @method string|null getSpecificationValuesSyncedAt()
- * @method $this setSpecificationValuesSyncedAt(?string $timestamp)
- * @method string|null getErrorMessage()
  * @method $this setErrorMessage(?string $message)
- * @method string|null getLastSyncedAt()
  * @method $this setLastSyncedAt(?string $timestamp)
  */
-class ItemMap extends AbstractModel
+class AttributeSetMap extends AbstractModel
 {
     public const STATUS_PENDING = 'pending';
     public const STATUS_IMPORTED = 'imported';
@@ -43,6 +39,6 @@ class ItemMap extends AbstractModel
 
     protected function _construct(): void
     {
-        $this->_init(ItemMapResource::class);
+        $this->_init(AttributeSetMapResource::class);
     }
 }

@@ -1113,3 +1113,232 @@ correct role assignment, correct store-scope inheritance, no orphaned
 files, real storefront rendering. **Media is no longer the blocker.** Per
 the project's own stated priority order, the next milestone is
 Attributes/Specifications - not started in this session.
+
+---
+
+## Round 24 — Attributes/Specifications: investigation + architecture prep (NOT EXECUTED)
+
+New branch: `feature/specifications-attributes`, off a committed baseline
+(`ea0fd46`). Everything below is code/schema **structure only** - no
+`setup:upgrade`, no `--execute`, no attribute/option/set/value ever
+written to Magento. 266 PHP files total (up from 215 at the start of this
+round), 0 `php -l` failures.
+
+### Investigation findings (live-verified against both databases, not
+just docs)
+
+- `analyze:attributes`/`analyze:attribute-sets` re-run live: every
+  documented figure confirmed exactly (360 specs, 7,364 options, CREATE
+  319/NEEDS_REVIEW 14/SKIP_UNUSED 23/SKIP_INVALID 4, 8 top-level
+  categories, 89 multi-tree items).
+- **Real documentation contradiction traced to resolution**:
+  `ECCUBE_FORENSIC_DATA_FLOW_ANALYSIS.md` (Round 3/4) says "take first
+  value, no multiselect" for the 5 multi-value specs; `ATTRIBUTE_MIGRATION_PLAN.md`
+  §0.5, `MIGRATION_ASSUMPTIONS.md` §1a, and `SPECIFICATION_MAGENTO_DATA_MODEL.md`
+  §10 all later retract that and recommend multiselect + a custom
+  positional table. The FORENSIC doc was simply never updated with a
+  correction note (unlike its sibling docs) - it is stale. Standing
+  design used throughout this round's code is multiselect + positional
+  table, per explicit instruction.
+- **New critical finding, not previously documented anywhere**: a
+  pre-existing, manually-built `ct_*` attribute family (17 attributes:
+  `ct_icf`, `ct_nwkf`, `ct_vf`, `ct_vg`, `ct_a`/`ct_b`/`ct_c`/`ct_d`/`ct_pcd`,
+  `ct_model`, `ct_2d_cad`/`ct_3d_cad`, `ct_tab_catalog`/`ct_tab_ground_floatin`,
+  `ct_stock_status`/`ct_when_out_of_stock`) already exists on a "Coaxial"
+  attribute set (id 9, 84 live products, real populated data - `ct_icf`
+  alone has 74 non-null values). This conceptually overlaps 4 of the 5
+  multi-value specifications and the dimension-letter/CAD/tab
+  specifications. **Explicitly not touched, not renamed, not auto-mapped
+  this round** - reconciliation is a pending business decision.
+- **Schema correction caught before writing code**: `dtb_item_specification_class`
+  has no `item_id`/`specification_id` column (only `id`,
+  `specification_class_id`, metadata) - the real link is entirely through
+  `dtb_item_specification.item_specification_class_id`.
+  `dtb_product_specification_class` has no `sort_no` and no
+  `specification_id` column either (only `id`, `specification_class_id`,
+  `product_id`) - `specification_id` requires a join through
+  `dtb_specification_class`, and there is no source ordering column for
+  the multi-value case, so row `id` (insertion order) is the deterministic
+  fallback, matching the existing `eccube_product_reference_map` pattern.
+  This corrects an implicit assumption in `ATTRIBUTE_MIGRATION_PLAN.md`
+  §B that conflated this table with `dtb_item_specification`'s own
+  `sort_no`.
+
+### Three pending decisions - kept pending, not resolved by code
+
+1. Reconciliation with the pre-existing `ct_*` attribute family - open.
+2. Multi-value specs (9 ICF, 10 NW/KF, 11 VF, 12 VG, 27 D): multiselect +
+   custom positional table - implemented in code as the standing design,
+   flagged pending in `Model/Specification/MultiValueSpecificationRegistry.php`.
+3. Attribute-set tie-break for the 89 multi-category items: `dtb_category_item.sort_no DESC`
+   then lowest `category_id` - implemented in `Model/Mapper/AttributeSetResolver.php`,
+   flagged pending, **not yet wired into `ItemMapper`/`ProductMapper`**
+   (those are proven, already-verified pipeline and were deliberately left
+   untouched this round).
+
+### What was built (architecture only)
+
+- **Multi-value registry**: `Model/Specification/MultiValueSpecificationRegistry.php`
+  - single source of truth for the pending decision, referenced by
+  `AttributeImporter` (now creates `multiselect`/`varchar` instead of
+  `select`/`int` for the 5 flagged specs - the only change to
+  already-existing, previously-verified code this round) and both new
+  value importers.
+- **Specification values**: `Api/Data/{Item,Product}SpecificationValueInterface.php`
+  + `Model/DTO/*` + `Api/*RepositoryInterface.php` + `Model/Repository/*`
+  (read-only, schema corrected per above) + `Model/Import/ItemAttributeValueImporter.php`
+  (Grouped Product, batched per item) + `Model/Import/ProductAttributeValueImporter.php`
+  (Simple Product, batched per product via `getProductIdsWithValues()` -
+  confirmed live this round: **27,355 distinct products** carry at least
+  one specification value, far more than the 1,073 items with formal
+  declarations, consistent with the "declaration is advisory" finding in
+  `SPECIFICATION_MAGENTO_DATA_MODEL.md` ADDENDUM D). Idempotency via new
+  `specification_value_hash`/`specification_values_synced_at` columns
+  added to the existing `eccube_item_map`/`eccube_product_map` tables -
+  same pattern as `InventoryImporter`'s `inventory_content_hash`, not a
+  new table.
+- **Multi-value positional store** (pending design): `eccube_product_specification_value`
+  table + `Model/ProductSpecificationValueMap.php` trio + repository -
+  lossless per-value storage keyed on the exact source row id.
+- **Attribute Sets**: `Model/Mapper/AttributeSetResolver.php` (tie-break,
+  pending) + `Model/Import/AttributeSetImporter.php` (creates/updates the
+  8 sets via real `Magento\Eav\Api\AttributeSetManagementInterface`/`AttributeManagementInterface`,
+  idempotent, permissive-union per `SPECIFICATION_MAGENTO_DATA_MODEL.md`
+  ADDENDUM D) + `eccube_attribute_set_map` table.
+- **Related Products**: `Model/Import/RelatedProductImporter.php` - native
+  Magento `related` product links (matches `ProductRelationImporter`'s
+  existing pattern), batched per source product, `eccube_related_product_map`.
+- **Connection Parts**: `Model/Import/ConnectionPartImporter.php` +
+  `Model/Product/CouplingProductProvider.php` + `Plugin/AddConnectionPartsToProduct.php`
+  - mirrors the existing `ProductReferenceImporter`/`ProductReferenceProvider`/`AddProductReferencesToProduct`
+  extension-attribute pattern exactly, since Connection Parts is
+  structurally the same shape (a genuine relation table, not a Magento
+  link type) and must not share Related Products' mechanism.
+  `eccube_coupling_product_map` table.
+- 5 new CLI commands (`import:attribute-sets`, `import:item-attribute-values`,
+  `import:product-attribute-values` (with `--limit`, added this round -
+  see below), `import:related-products`, `import:connection-parts`), all
+  dry-run-by-default / `--execute`-required, matching `import:attributes`'s
+  established safety convention.
+
+### Verification actually performed (real, not claimed)
+
+- Full module `php -l` sweep: 266 files, 0 errors.
+- Every new class instantiated through Magento's **real DI container**
+  (`$objectManager->create()`), not just linted - caught a stale config
+  cache (fixed with `cache:flush config`, not a code defect).
+- Every new CLI command run in its default dry-run mode against the real
+  EC-CUBE DB. Two real, fixed findings from this:
+  1. `import:attribute-sets`/`import:related-products`/`import:connection-parts`
+     correctly report per-row errors for the new mapping tables not
+     existing yet (expected - `setup:upgrade` was deliberately not run).
+  2. **Real bug found and fixed**: `RelatedProductImporter`'s error
+     handler was missing the `!$context->isDryRun()` guard around its
+     map-save that every other importer has, and its fallback error-path
+     map-save had no defense against a *second* failure of the same root
+     cause - together these let one bad row crash the entire dry run with
+     an uncaught exception instead of being recorded and continued past.
+     Fixed (dry-run guard restored, error-path save wrapped
+     defensively) and re-verified clean.
+  3. `import:product-attribute-values` had no `--limit` option (unlike
+     every other importer with an unbounded source table) - a full dry
+     run legitimately walks all 27,355 products-with-values, taking
+     several minutes. Added `--limit`, verified fast (<1s at `--limit=10`).
+- Confirmed the pre-existing `analyze:attributes`/`analyze:attribute-sets`
+  commands still produce identical output after the `SpecificationRepository`
+  additions (purely additive, nothing removed/changed).
+
+### Not done this round (explicitly, per instruction)
+
+`setup:upgrade` (new tables don't physically exist yet - every dry run's
+"error" count against them is expected), `--execute` of anything, any
+change to `ItemMapper`/`ProductMapper` to consume `AttributeSetResolver`,
+any change to the `ct_*` attributes, Item Additional Information, Catalog
+document relation (already covered by the media pipeline, see Round 23),
+CAD/document attribute (`cad_unavailable_check` already exists per
+Round 22).
+
+---
+
+## Round 25 — Sync layer for Attributes/Specifications (NOT EXECUTED)
+
+Closes the "required mapping/history/**sync**" gap from Round 24: every
+new Round 24 component now has a Sync counterpart, matching the existing
+Sync-extends/delegates-Importer pattern exactly. 278 PHP files total
+(up from 266), 0 `php -l` failures.
+
+### Sync classes added
+
+`Model/Sync/{Attribute,AttributeSet,ItemAttributeValue,ProductAttributeValue}Sync.php`
+are thin delegating wrappers (same reasoning as the existing
+`InventorySync`/`ImageSync`: the underlying Importer is already
+hash-incremental, so a full scan through it already behaves as a sync -
+no fake "modified since" query invented). `Model/Sync/{RelatedProduct,ConnectionPart}Sync.php`
+additionally page through their map table's distinct owner ids and call
+new `markObsoleteForProduct()` / `markObsoleteForItem()` importer methods
+for relations removed at source (same pattern as `MediaSync`) -
+`RelatedProductImporter` gained `markObsoleteForProduct()` this round
+(mirroring the already-existing `ProductReferenceImporter::markObsoleteForProduct()`
+and `ConnectionPartImporter::markObsoleteForItem()`), plus
+`getDistinctProductIds()`/`getDistinctItemIds()` on the two map
+repositories to page owners without materialising the whole table.
+
+**Known limitation, stated explicitly rather than silently omitted**:
+these Sync classes (and the Round 24 Importers) do not scrub an
+individual attribute *value* that was removed at source while the
+item/product itself still exists - the hash-based skip correctly detects
+the change and re-writes, but only ever sets values present in the
+current resolved set, never explicitly clears one that's gone missing.
+This mirrors a pre-existing, equally-unsolved gap in
+`ProductReferenceImporter`'s own obsolete handling (which marks the
+*mapping* obsolete but doesn't scrub already-written Magento data
+either). Not fixed this round - flagged for revisit if source deletions
+of individual specification values (not whole items/products) turn out
+to occur in practice.
+
+### CLI commands added (6)
+
+`sync:attributes`, `sync:attribute-sets`, `sync:item-attribute-values`,
+`sync:product-attribute-values`, `sync:related-products`,
+`sync:connection-parts`. **Deliberately use the newer `--execute`-required
+safety convention** (matching `import:attributes`/`import:images`), not
+the older `sync:categories`/`sync:group-products`/`sync:simple-products`/`sync:inventory`/`sync:images`
+commands' writes-by-default-unless-`--dry-run` pattern - a documented,
+deliberate departure for this round's new commands per explicit
+instruction to keep every migration command dry-run by default.
+
+### Verification performed
+
+- Full lint sweep: 278 files, 0 errors.
+- All 12 new classes (6 Sync + 6 commands) instantiated through Magento's
+  real DI container after a `cache:flush config`.
+- All 6 sync commands registered (`bin/magento list`) and run in default
+  dry-run mode against live data:
+  - `sync:attributes`: 319 imported / 41 skipped / 0 errors (identical
+    projection to `import:attributes`, confirming true delegation).
+  - `sync:attribute-sets`: 8/8 expected "table does not exist" errors,
+    each individually caught and logged - command completes cleanly, not
+    a crash.
+  - `sync:item-attribute-values`: 1092 skipped / 0 errors (identical to
+    `import:item-attribute-values`).
+  - `sync:related-products`: 61,617 total, 24,205 expected "table does
+    not exist" errors, each individually caught and logged.
+  - `sync:connection-parts`: 862 total, 707 expected "table does not
+    exist" errors, each individually caught and logged.
+  - `sync:product-attribute-values`: verified via direct code-path
+    equivalence (the Sync class is a literal one-line delegation to the
+    already-fully-verified `ProductAttributeValueImporter::import()`) -
+    not re-run to completion a second time, since a partial run at
+    `--batch-size=20` showed identical behaviour to the already-completed
+    `--batch-size=100` run before being stopped as redundant.
+- Re-confirmed zero Magento mutation after this round's testing:
+  `eccube_spec_*` attributes still 0, `catalog_product` attribute sets
+  still 2 (`Default`, `Coaxial`), `ct_*` family still 17 attributes
+  untouched, none of the 4 new tables physically exist (`setup:upgrade`
+  still deliberately not run).
+
+### Not done this round
+
+`setup:upgrade`, `--execute` of anything, `ItemMapper`/`ProductMapper`
+wiring for `AttributeSetResolver`, `ct_*` reconciliation, the
+individual-value-removal limitation noted above.

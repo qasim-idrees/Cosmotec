@@ -17,6 +17,7 @@ use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
 use Cosmotec\EccubeMigration\Model\SpecificationMap;
 use Cosmotec\EccubeMigration\Model\SpecificationMapFactory;
+use Cosmotec\EccubeMigration\Model\Specification\MultiValueSpecificationRegistry;
 use Cosmotec\EccubeMigration\Model\SpecificationOptionMap;
 use Cosmotec\EccubeMigration\Model\SpecificationOptionMapFactory;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
@@ -69,6 +70,7 @@ class AttributeImporter implements ImporterInterface
         private readonly AttributeOptionInterfaceFactory $optionFactory,
         private readonly AttributeOptionLabelInterfaceFactory $optionLabelFactory,
         private readonly EavConfig $eavConfig,
+        private readonly MultiValueSpecificationRegistry $multiValueRegistry,
         private readonly ImportLogger $logger
     ) {
     }
@@ -136,12 +138,21 @@ class AttributeImporter implements ImporterInterface
         $attribute = $this->findExistingAttribute($code);
         $isUpdate = $attribute !== null;
 
+        // PENDING BUSINESS DECISION (see MultiValueSpecificationRegistry and
+        // BUILD_STATUS.md): 5 specifications (ICF, NW/KF, VF, VG, D) have
+        // real source-confirmed multi-value assignments (329 pairs, 0
+        // identical - adapters/reducers, not duplicate data). Current
+        // standing design is multiselect for these 5, plain select for
+        // every other specification. Reversing this decision means
+        // changing only MultiValueSpecificationRegistry, not this class.
+        $isMultiValue = $this->multiValueRegistry->isMultiValue($specification->getId());
+
         if ($attribute === null) {
             $attribute = $this->attributeFactory->create();
             $attribute->setAttributeCode($code);
             $attribute->setEntityTypeId($this->getProductEntityTypeId());
-            $attribute->setFrontendInput('select');
-            $attribute->setBackendType('int');
+            $attribute->setFrontendInput($isMultiValue ? 'multiselect' : 'select');
+            $attribute->setBackendType($isMultiValue ? 'varchar' : 'int');
             $attribute->setIsUserDefined(true);
             $attribute->setIsGlobal(1);
         }

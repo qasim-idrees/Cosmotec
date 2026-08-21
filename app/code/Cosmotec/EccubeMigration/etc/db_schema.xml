@@ -35,6 +35,8 @@
         <column xsi:type="varchar" name="sku" nullable="true" length="128" comment="Synthesized SKU assigned to the Grouped Product"/>
         <column xsi:type="varchar" name="content_hash" nullable="true" length="64" comment="Hash of mapped source fields, used to skip unchanged records on sync"/>
         <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error"/>
+        <column xsi:type="varchar" name="specification_value_hash" nullable="true" length="64" comment="Hash of last-applied ITEM-scope specification attribute values, used to skip unchanged EAV writes - same pattern as inventory_content_hash on eccube_product_map"/>
+        <column xsi:type="timestamp" name="specification_values_synced_at" nullable="true" comment="Last successful specification-value import/sync timestamp"/>
         <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
         <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
         <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
@@ -65,6 +67,8 @@
         <column xsi:type="smallint" name="relation_linked" unsigned="true" nullable="false" default="0" comment="1 once this product has been linked to its parent Grouped Product, 0 otherwise"/>
         <column xsi:type="varchar" name="inventory_content_hash" nullable="true" length="64" comment="Hash of last-applied inventory data, used to skip unchanged MSI writes"/>
         <column xsi:type="timestamp" name="inventory_synced_at" nullable="true" comment="Last successful inventory import/sync timestamp"/>
+        <column xsi:type="varchar" name="specification_value_hash" nullable="true" length="64" comment="Hash of last-applied PRODUCT-scope specification attribute values, used to skip unchanged EAV writes"/>
+        <column xsi:type="timestamp" name="specification_values_synced_at" nullable="true" comment="Last successful specification-value import/sync timestamp"/>
         <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
         <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
         <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
@@ -249,6 +253,107 @@
         </index>
         <index referenceId="ECCUBE_PRODUCT_REFERENCE_MAP_STATUS" indexType="btree">
             <column name="status"/>
+        </index>
+    </table>
+
+    <table name="eccube_attribute_set_map" resource="default" engine="innodb"
+           comment="Maps EC-CUBE top-level dtb_category rows to Magento catalog_product Attribute Sets. Magento design decision - EC-CUBE has no attribute-set concept.">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="eccube_top_level_category_id" unsigned="true" nullable="false" comment="dtb_category.id, hierarchy=1 row this set was derived from"/>
+        <column xsi:type="varchar" name="set_name" nullable="false" length="255" comment="Proposed/assigned Magento attribute_set_name (English top-level category name)"/>
+        <column xsi:type="int" name="magento_attribute_set_id" unsigned="true" nullable="true" comment="eav_attribute_set.attribute_set_id once created"/>
+        <column xsi:type="int" name="specification_count" unsigned="true" nullable="false" default="0" comment="Number of specifications assigned (union of the category tree's usage)"/>
+        <column xsi:type="varchar" name="content_hash" nullable="true" length="64" comment="Hash of the assigned specification-id set, used to detect when the union needs re-syncing"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
+        <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_ATTRIBUTE_SET_MAP_CATEGORY_ID">
+            <column name="eccube_top_level_category_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_ATTRIBUTE_SET_MAP_STATUS" indexType="btree">
+            <column name="status"/>
+        </index>
+    </table>
+
+    <table name="eccube_product_specification_value" resource="default" engine="innodb"
+           comment="PENDING DESIGN (see BUILD_STATUS.md): lossless positional storage for the 5 specifications (ICF/NW-KF/VF/VG/D) confirmed to carry more than one real value per product (329 pairs). Not approved for creation until the business decision is confirmed - see MultiValueSpecificationRegistry.">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="eccube_product_specification_class_id" unsigned="true" nullable="false" comment="dtb_product_specification_class.id - the exact source row, so re-runs are exact-match idempotent"/>
+        <column xsi:type="int" name="eccube_product_id" unsigned="true" nullable="false" comment="dtb_product_specification_class.product_id"/>
+        <column xsi:type="int" name="eccube_specification_id" unsigned="true" nullable="false" comment="Resolved via dtb_specification_class.specification_id"/>
+        <column xsi:type="int" name="eccube_specification_class_id" unsigned="true" nullable="false" comment="dtb_specification_class.id - the chosen option"/>
+        <column xsi:type="int" name="magento_option_id" unsigned="true" nullable="true" comment="Resolved Magento eav_attribute_option.option_id"/>
+        <column xsi:type="smallint" name="position" unsigned="true" nullable="false" default="0" comment="0-based position among this product's values for this specification. dtb_product_specification_class has no source ordering column (verified live) - this is row-id insertion order, the same deterministic fallback already used for eccube_product_reference_map"/>
+        <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="true" comment="Resolved Magento simple product id"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
+        <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_PRODUCT_SPEC_VALUE_SOURCE_ID">
+            <column name="eccube_product_specification_class_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_PRODUCT_SPEC_VALUE_PRODUCT_SPEC" indexType="btree">
+            <column name="eccube_product_id"/>
+            <column name="eccube_specification_id"/>
+        </index>
+    </table>
+
+    <table name="eccube_coupling_product_map" resource="default" engine="innodb"
+           comment="Maps EC-CUBE dtb_coupling_product (Item -&gt; specific Product, &quot;Connection Parts&quot;) to Magento. Deliberately NOT Magento's built-in related/upsell/cross-sell link types - semantically distinct, per docs/MIGRATION_ASSUMPTIONS.md §3.">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="eccube_coupling_id" unsigned="true" nullable="false" comment="dtb_coupling_product.id"/>
+        <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="false" comment="dtb_coupling_product.item_id - the parent Item"/>
+        <column xsi:type="int" name="eccube_product_id" unsigned="true" nullable="false" comment="dtb_coupling_product.product_id - the connected child Product"/>
+        <column xsi:type="int" name="magento_parent_product_id" unsigned="true" nullable="true" comment="Resolved Magento Grouped Product id"/>
+        <column xsi:type="int" name="magento_connected_product_id" unsigned="true" nullable="true" comment="Resolved Magento Simple Product id"/>
+        <column xsi:type="int" name="sort_no" nullable="false" default="0" comment="Derived ordering (source has no sort column; source id order is used, same fallback as eccube_product_reference_map)"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error|obsolete"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
+        <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_COUPLING_PRODUCT_MAP_SOURCE_ID">
+            <column name="eccube_coupling_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_COUPLING_PRODUCT_MAP_ITEM_ID" indexType="btree">
+            <column name="eccube_item_id"/>
+        </index>
+    </table>
+
+    <table name="eccube_related_product_map" resource="default" engine="innodb"
+           comment="Maps EC-CUBE dtb_related_product (Product -&gt; Product, child-level) to Magento native related-product links. Structurally distinct from eccube_coupling_product_map - must not share a Magento link type.">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="eccube_related_id" unsigned="true" nullable="false" comment="dtb_related_product.id"/>
+        <column xsi:type="int" name="eccube_product_id" unsigned="true" nullable="false" comment="dtb_related_product.product_id - the source child Product"/>
+        <column xsi:type="int" name="eccube_related_product_id" unsigned="true" nullable="false" comment="dtb_related_product.related_product_id - the target child Product"/>
+        <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="true" comment="Resolved Magento Simple Product id (source)"/>
+        <column xsi:type="int" name="magento_related_product_id" unsigned="true" nullable="true" comment="Resolved Magento Simple Product id (target)"/>
+        <column xsi:type="int" name="sort_no" nullable="false" default="0" comment="Derived ordering (source has no sort column; source id order is used)"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error|obsolete"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Last error message, if status=error"/>
+        <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful import/sync timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_RELATED_PRODUCT_MAP_SOURCE_ID">
+            <column name="eccube_related_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_RELATED_PRODUCT_MAP_PRODUCT_ID" indexType="btree">
+            <column name="eccube_product_id"/>
         </index>
     </table>
 

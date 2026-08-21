@@ -52,6 +52,22 @@
                 type="Cosmotec\EccubeMigration\Model\Repository\SpecificationRepository"/>
     <preference for="Cosmotec\EccubeMigration\Api\ImageMapRepositoryInterface"
                 type="Cosmotec\EccubeMigration\Model\Repository\ImageMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemSpecificationValueRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ItemSpecificationValueRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductSpecificationValueRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductSpecificationValueRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\AttributeSetMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\AttributeSetMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ProductSpecificationValueMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ProductSpecificationValueMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\CouplingProductRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\CouplingProductRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\CouplingProductMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\CouplingProductMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\RelatedProductRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\RelatedProductRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\RelatedProductMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\RelatedProductMapRepository"/>
 
     <!--
         Logger channels.
@@ -146,7 +162,13 @@
         <plugin name="cosmotec_eccube_product_references"
                 type="Cosmotec\EccubeMigration\Plugin\AddProductReferencesToProduct"
                 sortOrder="10"/>
+        <plugin name="cosmotec_eccube_connection_parts"
+                type="Cosmotec\EccubeMigration\Plugin\AddConnectionPartsToProduct"
+                sortOrder="11"/>
     </type>
+
+    <preference for="Cosmotec\EccubeMigration\Api\CouplingProductProviderInterface"
+                type="Cosmotec\EccubeMigration\Model\Product\CouplingProductProvider"/>
 
     <!-- CLI commands -->
     <type name="Magento\Framework\Console\CommandListInterface">
@@ -172,6 +194,17 @@
                 <item name="cosmotecEccubeAnalyzeAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeAttributesCommand</item>
                 <item name="cosmotecEccubeAnalyzeAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeAttributeSetsCommand</item>
                 <item name="cosmotecEccubeImportAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportAttributesCommand</item>
+                <item name="cosmotecEccubeImportAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportAttributeSetsCommand</item>
+                <item name="cosmotecEccubeImportItemAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportItemAttributeValuesCommand</item>
+                <item name="cosmotecEccubeImportProductAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductAttributeValuesCommand</item>
+                <item name="cosmotecEccubeImportRelatedProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportRelatedProductsCommand</item>
+                <item name="cosmotecEccubeImportConnectionParts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportConnectionPartsCommand</item>
+                <item name="cosmotecEccubeSyncAttributes" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncAttributesCommand</item>
+                <item name="cosmotecEccubeSyncAttributeSets" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncAttributeSetsCommand</item>
+                <item name="cosmotecEccubeSyncItemAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncItemAttributeValuesCommand</item>
+                <item name="cosmotecEccubeSyncProductAttributeValues" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncProductAttributeValuesCommand</item>
+                <item name="cosmotecEccubeSyncRelatedProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncRelatedProductsCommand</item>
+                <item name="cosmotecEccubeSyncConnectionParts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncConnectionPartsCommand</item>
                 <item name="cosmotecEccubeAnalyzeMedia" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\AnalyzeMediaCommand</item>
                 <item name="cosmotecEccubeDiagnoseProduct" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseProductCommand</item>
                 <item name="cosmotecEccubeDiagnoseGallery" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseGalleryCommand</item>

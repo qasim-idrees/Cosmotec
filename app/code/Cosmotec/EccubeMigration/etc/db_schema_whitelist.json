@@ -31,7 +31,9 @@
             "error_message": true,
             "last_synced_at": true,
             "created_at": true,
-            "updated_at": true
+            "updated_at": true,
+            "specification_value_hash": true,
+            "specification_values_synced_at": true
         },
         "index": {
             "ECCUBE_ITEM_MAP_MAGENTO_PRODUCT_ID": true,
@@ -57,7 +59,9 @@
             "error_message": true,
             "last_synced_at": true,
             "created_at": true,
-            "updated_at": true
+            "updated_at": true,
+            "specification_value_hash": true,
+            "specification_values_synced_at": true
         },
         "index": {
             "ECCUBE_PRODUCT_MAP_MAGENTO_PRODUCT_ID": true,
@@ -239,6 +243,98 @@
             "PRIMARY": true,
             "ECCUBE_PRODUCT_REFERENCE_MAP_SOURCE_ID": true,
             "ECCUBE_PRODUCT_REFERENCE_MAP_ECCUBE_REFERENCE_ID": true
+        }
+    },
+    "eccube_attribute_set_map": {
+        "column": {
+            "entity_id": true,
+            "eccube_top_level_category_id": true,
+            "set_name": true,
+            "magento_attribute_set_id": true,
+            "specification_count": true,
+            "content_hash": true,
+            "status": true,
+            "error_message": true,
+            "last_synced_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "ECCUBE_ATTRIBUTE_SET_MAP_STATUS": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "ECCUBE_ATTRIBUTE_SET_MAP_CATEGORY_ID": true
+        }
+    },
+    "eccube_product_specification_value": {
+        "column": {
+            "entity_id": true,
+            "eccube_product_specification_class_id": true,
+            "eccube_product_id": true,
+            "eccube_specification_id": true,
+            "eccube_specification_class_id": true,
+            "magento_option_id": true,
+            "position": true,
+            "magento_product_id": true,
+            "status": true,
+            "error_message": true,
+            "last_synced_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "ECCUBE_PRODUCT_SPEC_VALUE_PRODUCT_SPEC": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "ECCUBE_PRODUCT_SPEC_VALUE_SOURCE_ID": true
+        }
+    },
+    "eccube_coupling_product_map": {
+        "column": {
+            "entity_id": true,
+            "eccube_coupling_id": true,
+            "eccube_item_id": true,
+            "eccube_product_id": true,
+            "magento_parent_product_id": true,
+            "magento_connected_product_id": true,
+            "sort_no": true,
+            "status": true,
+            "error_message": true,
+            "last_synced_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "ECCUBE_COUPLING_PRODUCT_MAP_ITEM_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "ECCUBE_COUPLING_PRODUCT_MAP_SOURCE_ID": true
+        }
+    },
+    "eccube_related_product_map": {
+        "column": {
+            "entity_id": true,
+            "eccube_related_id": true,
+            "eccube_product_id": true,
+            "eccube_related_product_id": true,
+            "magento_product_id": true,
+            "magento_related_product_id": true,
+            "sort_no": true,
+            "status": true,
+            "error_message": true,
+            "last_synced_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "ECCUBE_RELATED_PRODUCT_MAP_PRODUCT_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "ECCUBE_RELATED_PRODUCT_MAP_SOURCE_ID": true
         }
     }
 }

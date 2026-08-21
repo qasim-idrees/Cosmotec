@@ -82,4 +82,16 @@ interface SpecificationRepositoryInterface
      * @throws EccubeConnectionException
      */
     public function getItemsInMultipleTopLevelCategories(array $topLevelDescendantMap): array;
+
+    /**
+     * dtb_category_item rows for one item, ordered per the source's own
+     * ordering (sort_no DESC) with lowest category_id as an explicit
+     * secondary tie-break. Feeds the PENDING (see BUILD_STATUS.md)
+     * attribute-set tie-break rule for items spanning multiple top-level
+     * category trees.
+     *
+     * @return array<int, array{category_id: int, sort_no: int}>
+     * @throws EccubeConnectionException
+     */
+    public function getItemCategoryOrdering(int $itemId): array;
 }

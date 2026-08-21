@@ -189,6 +189,35 @@ class SpecificationRepository extends AbstractEccubeRepository implements Specif
         return array_map(static fn (array $row): int => (int) $row['specification_id'], $rows);
     }
 
+    /**
+     * dtb_category_item rows for one item, ordered exactly per the source's
+     * own ordering (Item::$CategoryItems is @ORM\OrderBy sort_no DESC),
+     * with lowest category_id as an explicit secondary tie-break for rows
+     * that share a sort_no. Used by AttributeSetResolver to implement the
+     * PENDING (see BUILD_STATUS.md) tie-break rule for the 89 items
+     * spanning multiple top-level category trees.
+     *
+     * @return array<int, array{category_id: int, sort_no: int}>
+     */
+    public function getItemCategoryOrdering(int $itemId): array
+    {
+        $rows = $this->connection->fetchAll(
+            'SELECT category_id, sort_no
+             FROM dtb_category_item
+             WHERE item_id = :item_id
+             ORDER BY sort_no DESC, category_id ASC',
+            ['item_id' => $itemId]
+        );
+
+        return array_map(
+            static fn (array $row): array => [
+                'category_id' => (int) $row['category_id'],
+                'sort_no' => (int) $row['sort_no'],
+            ],
+            $rows
+        );
+    }
+
     public function getItemsInMultipleTopLevelCategories(array $topLevelDescendantMap): array
     {
         $itemTopLevels = [];
