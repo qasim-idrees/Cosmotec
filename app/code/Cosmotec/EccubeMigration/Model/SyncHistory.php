@@ -50,7 +50,9 @@ class SyncHistory extends AbstractModel
 
     public const OPERATION_IMPORT = 'import';
     public const OPERATION_SYNC = 'sync';
-    public const OPERATION_ASSIGN_ATTRIBUTE_SET = 'assign_attribute_set';
+    // Must stay <= 16 chars - the `operation` column is varchar(16)
+    // and MySQL truncates silently rather than raising an error here.
+    public const OPERATION_ASSIGN_SET = 'assign_set';
 
     public const STATUS_IMPORTED = 'imported';
     public const STATUS_UPDATED = 'updated';

@@ -47,9 +47,20 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
 
     public function import(ImportContext $context): ImportResult
     {
+        return $this->importLimited($context, null);
+    }
+
+    /**
+     * @param int|null $limit stop after this many rows examined - for a
+     *                        small controlled real-data test before the
+     *                        full batch (Step 8).
+     */
+    public function importLimited(ImportContext $context, ?int $limit): ImportResult
+    {
         $result = new ImportResult();
         $batchSize = $context->getBatchSize() ?? 200;
         $offset = 0;
+        $processed = 0;
 
         while (true) {
             $batch = $this->productMapRepository->getMappedBatch($offset, $batchSize);
@@ -60,6 +71,11 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
 
             foreach ($batch as $productMap) {
                 $this->assignOne($productMap, $context, $result);
+                $processed++;
+
+                if ($limit !== null && $processed >= $limit) {
+                    break 2;
+                }
             }
 
             if (count($batch) < $batchSize) {
@@ -124,9 +140,9 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
             }
 
             $setMap = $this->attributeSetMapRepository->getByTopLevelCategoryId($topLevelCategoryId);
-            $targetSetId = $setMap?->getMagentoAttributeSetId();
+            $rawTargetSetId = $setMap?->getMagentoAttributeSetId();
 
-            if ($targetSetId === null) {
+            if ($rawTargetSetId === null) {
                 $result->incrementErrors();
                 $message = sprintf('Resolved top-level category %d has no imported Magento attribute set yet.', $topLevelCategoryId);
                 $this->logger->error(sprintf('Product %d attribute-set assignment failed: %s', $eccubeProductId, $message));
@@ -134,6 +150,10 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
 
                 return;
             }
+
+            // See ItemAttributeSetAssignmentImporter::assignOne() for why
+            // this cast is required before any strict comparison.
+            $targetSetId = (int) $rawTargetSetId;
 
             try {
                 $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
@@ -223,7 +243,7 @@ class ProductAttributeSetAssignmentImporter implements ImporterInterface
         $this->syncHistoryRepository->record(
             $context->getRunId(),
             SyncHistory::ENTITY_TYPE_PRODUCT,
-            SyncHistory::OPERATION_ASSIGN_ATTRIBUTE_SET,
+            SyncHistory::OPERATION_ASSIGN_SET,
             $sourceId,
             $targetId,
             $status,

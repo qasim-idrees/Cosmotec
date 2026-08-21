@@ -2070,9 +2070,72 @@ whose resolved target differs from the current Default-set assignment, 36
 uncategorized items correctly routed to needs-review instead of being
 silently dropped or errored).
 
+Product-side dry run (`assign:product-attribute-sets`, all 17,982 mapped
+Simple Products): `Assigned: 17982, Errors: 0, Needs review: 0` - every
+mapped product resolved cleanly through its owning item.
+
+Added `--limit` to both importers (`importLimited()`, mirroring the existing
+`ProductAttributeValueImporter` pattern) and both commands, specifically so
+a small controlled real batch could be run before the full one, per the
+user's Step 8.
+
+## Round 37 — Step 8: controlled real batch, two bugs found and fixed
+
+First controlled `--execute --limit=5` on the item side reported
+`Errors: 5`, all with the message `Verification failed: expected
+attribute_set_id=10 after save, actual=10` - expected and actual were
+identical, yet flagged as a mismatch. Checked the actual product data
+before assuming the fix was wrong: `catalog_product_entity.attribute_set_id`
+for all 5 was genuinely `10`, the correct resolved target - the reassignment
+itself had worked, only the verification comparison was broken.
+
+**Bug 1**: `AttributeSetMap::getMagentoAttributeSetId()` returns
+`AbstractModel::getData()`'s raw DB value - a numeric string, not an `int`,
+despite the getter's phpdoc. `$targetSetId` was never cast, so the strict
+`===`/`!==` comparisons against `(int) $actualSetId`/`(int) $currentSetId`
+could never be true even when the values matched. This also meant the
+idempotency check (`$currentSetId === $targetSetId`) could never correctly
+skip an already-assigned product - every run would have kept retrying every
+row. Fixed by casting `$targetSetId = (int) $rawTargetSetId` immediately
+after fetching it, in both importers.
+
+**Bug 2**: `SyncHistory::OPERATION_ASSIGN_ATTRIBUTE_SET = 'assign_attribute_set'`
+(21 characters) silently truncated by MySQL to `'assign_attribute'` (16
+characters) when written, because `eccube_sync_history.operation` is
+`varchar(16)` (originally sized only for `import`/`sync`). Not caught by
+`php -l` or DI compile - only visible by reading the actual stored row.
+Fixed by shortening the constant to `OPERATION_ASSIGN_SET = 'assign_set'`
+(10 characters, comfortably under the limit) rather than widening the
+schema for a purely cosmetic distinction.
+
+Neither bug caused any data loss or incorrect assignment - the underlying
+`attribute_set_id` writes were correct throughout, confirmed by checking
+`catalog_product_entity` directly before touching any code. Both were
+purely bookkeeping/reporting bugs, but both would have made the importer
+unusable (permanently reporting false errors and never being idempotent),
+so worth having caught them here rather than during the full run.
+
+### Re-verified after both fixes (real data, not reverted - these are
+genuine completed assignments, not throwaway test data)
+
+Item side, `--execute --limit=15 --batch-size=15`: `Assigned: 5, Skipped: 10,
+Errors: 0` (5 fresh + the 10 already tested in the first pass, now
+correctly recognized as already-correct). `eccube_sync_history` rows for
+items 11-15 confirmed `operation=assign_set` (untruncated), `status=updated`.
+
+Product side, `--execute --limit=15 --batch-size=15`: `Assigned: 15, Errors: 0`.
+Verified independently both ways for all 15: direct query against
+`catalog_product_entity.attribute_set_id` shows `10` (Feedthrough) for
+every one, and `ProductRepositoryInterface::getById(..., forceReload: true)`
+agrees (checked explicitly for magento product 2382 - the SKU 10319 /
+item upload_file_id 1124 product referenced in the "Last known media
+blocker" section of this document, now confirmed correctly on the
+Feedthrough set as part of this batch).
+
 ### Next
 
-Product-side dry run (`assign:product-attribute-sets`, ~18k rows, running),
-then a small controlled `--execute` batch on both sides verified via direct
-DB query AND `ProductRepositoryInterface` before the full batch, per the
-user's Step 8.
+Full `--execute` run on both `assign:item-attribute-sets` and
+`assign:product-attribute-sets` (remaining ~1,077 items and ~17,967
+products), then re-run `import:item-attribute-values` /
+`import:product-attribute-values` for real, now that products are on the
+correct attribute sets.

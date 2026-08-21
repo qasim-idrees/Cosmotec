@@ -12,9 +12,9 @@ namespace Cosmotec\EccubeMigration\Model\Import;
 
 use Cosmotec\EccubeMigration\Api\AttributeSetMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface;
+use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
 use Cosmotec\EccubeMigration\Model\ItemMap;
-use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Model\Mapper\AttributeSetResolver;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
 use Magento\Catalog\Api\ProductRepositoryInterface as MagentoProductRepositoryInterface;
@@ -56,9 +56,20 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
 
     public function import(ImportContext $context): ImportResult
     {
+        return $this->importLimited($context, null);
+    }
+
+    /**
+     * @param int|null $limit stop after this many rows examined - for a
+     *                        small controlled real-data test before the
+     *                        full batch (Step 8).
+     */
+    public function importLimited(ImportContext $context, ?int $limit): ImportResult
+    {
         $result = new ImportResult();
         $batchSize = $context->getBatchSize() ?? 200;
         $offset = 0;
+        $processed = 0;
 
         while (true) {
             $batch = $this->itemMapRepository->getMappedBatch($offset, $batchSize);
@@ -69,6 +80,11 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
 
             foreach ($batch as $itemMap) {
                 $this->assignOne($itemMap, $context, $result);
+                $processed++;
+
+                if ($limit !== null && $processed >= $limit) {
+                    break 2;
+                }
             }
 
             if (count($batch) < $batchSize) {
@@ -121,9 +137,9 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
             }
 
             $setMap = $this->attributeSetMapRepository->getByTopLevelCategoryId($topLevelCategoryId);
-            $targetSetId = $setMap?->getMagentoAttributeSetId();
+            $rawTargetSetId = $setMap?->getMagentoAttributeSetId();
 
-            if ($targetSetId === null) {
+            if ($rawTargetSetId === null) {
                 $result->incrementErrors();
                 $message = sprintf('Resolved top-level category %d has no imported Magento attribute set yet.', $topLevelCategoryId);
                 $this->logger->error(sprintf('Item %d attribute-set assignment failed: %s', $eccubeItemId, $message));
@@ -131,6 +147,14 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
 
                 return;
             }
+
+            // AbstractModel::getData() returns raw DB values (often
+            // numeric strings, not int, despite the getter's phpdoc), and
+            // the verification/idempotency checks below use strict
+            // comparison against $actualSetId/$currentSetId (both cast to
+            // int) - without this cast every comparison would fail even
+            // when the values are logically equal.
+            $targetSetId = (int) $rawTargetSetId;
 
             try {
                 $product = $this->magentoProductRepository->getById($magentoProductId, true, 0);
@@ -220,7 +244,7 @@ class ItemAttributeSetAssignmentImporter implements ImporterInterface
         $this->syncHistoryRepository->record(
             $context->getRunId(),
             SyncHistory::ENTITY_TYPE_ITEM,
-            SyncHistory::OPERATION_ASSIGN_ATTRIBUTE_SET,
+            SyncHistory::OPERATION_ASSIGN_SET,
             $sourceId,
             $targetId,
             $status,

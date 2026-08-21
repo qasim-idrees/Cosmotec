@@ -31,6 +31,7 @@ class AssignItemAttributeSetsCommand extends Command
     private const OPTION_EXECUTE = 'execute';
     private const OPTION_DRY_RUN = 'dry-run';
     private const OPTION_BATCH_SIZE = 'batch-size';
+    private const OPTION_LIMIT = 'limit';
 
     public function __construct(
         private readonly ItemAttributeSetAssignmentImporter $importer,
@@ -47,6 +48,7 @@ class AssignItemAttributeSetsCommand extends Command
         $this->addOption(self::OPTION_EXECUTE, null, InputOption::VALUE_NONE, 'Actually reassign Magento product attribute sets. Without this flag the command only reports what it would do.');
         $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Explicitly request a dry run (this is also the default).');
         $this->addOption(self::OPTION_BATCH_SIZE, null, InputOption::VALUE_REQUIRED, 'Override the configured batch size.');
+        $this->addOption(self::OPTION_LIMIT, null, InputOption::VALUE_REQUIRED, 'Stop after this many rows examined - for a small controlled test before the full run.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -85,7 +87,8 @@ class AssignItemAttributeSetsCommand extends Command
             $batchSizeOption !== null ? (int) $batchSizeOption : null
         );
 
-        $result = $this->importer->import($context);
+        $limitOption = $input->getOption(self::OPTION_LIMIT);
+        $result = $this->importer->importLimited($context, $limitOption !== null ? (int) $limitOption : null);
 
         $output->writeln('');
         $output->writeln(sprintf(
