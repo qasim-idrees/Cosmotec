@@ -30,12 +30,23 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
         private readonly bool $cadUnavailable = false,
         private readonly bool $priceNeedsReview = false
     ) {
+        // attributeSetId is deliberately excluded: ProductMapper always
+        // computes Magento's Default set here (DefaultAttributeSetProvider)
+        // - the real EC-CUBE-category-derived attribute set is assigned
+        // separately and later by assign:product-attribute-sets, and
+        // ProductImporter::persist() correctly never re-applies this field
+        // on update. Including it in the hash would mean the computed
+        // value permanently differs from the product's real, correctly-
+        // assigned attribute set forever, so the hash would never
+        // stabilize and every already-imported product would show as
+        // "needing an update" on every single future run - defeating the
+        // whole point of the hash-gate skip this field is otherwise
+        // unrelated to.
         $this->contentHash = hash('sha256', implode('|', [
             $this->sku,
             $this->name,
             $this->enabled ? '1' : '0',
             $this->visibility,
-            $this->attributeSetId,
             $this->price ?? '',
             $this->stockQuantity,
             $this->inStock ? '1' : '0',

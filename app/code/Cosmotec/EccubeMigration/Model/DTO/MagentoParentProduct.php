@@ -32,13 +32,18 @@ final class MagentoParentProduct implements MagentoParentProductInterface
         $sortedCategoryIds = $this->categoryIds;
         sort($sortedCategoryIds);
 
+        // attributeSetId is deliberately excluded - see
+        // MagentoSimpleProduct's identical exclusion for the full
+        // reasoning. ItemMapper always computes Magento's Default set
+        // here; the real one is assigned separately by
+        // assign:item-attribute-sets, and ItemImporter::persist() never
+        // re-applies this field on update.
         $this->contentHash = hash('sha256', implode('|', [
             $this->sku,
             $this->name,
             $this->typeId,
             $this->enabled ? '1' : '0',
             $this->visibility,
-            $this->attributeSetId,
             implode(',', $sortedCategoryIds),
         ]));
     }

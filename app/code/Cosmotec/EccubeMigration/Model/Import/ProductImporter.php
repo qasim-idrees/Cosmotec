@@ -91,16 +91,22 @@ class ProductImporter implements ImporterInterface
             }
 
             $existingMap = $this->productMapRepository->getByEccubeProductId($source->getId());
+            $mapped = $this->mapper->map($source);
 
-            if ($this->isAlreadyDone($existingMap)) {
+            // Gated on BOTH status and content hash - a plain status check
+            // (the previous behavior) meant any product that ever reached
+            // IMPORTED/UPDATED/NEEDS_REVIEW could never be touched again by
+            // either import:simple-products or sync:simple-products, no
+            // matter what changed in EC-CUBE source afterward - the exact
+            // same bug found and fixed in CategoryImporter (see
+            // BUILD_STATUS.md), now confirmed to affect this importer too.
+            if ($this->isAlreadyDone($existingMap) && $existingMap->getContentHash() === $mapped->getContentHash()) {
                 $result->incrementSkipped();
-                $this->logger->info(sprintf('Product id=%d already imported, skipping.', $source->getId()));
-                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoProductId() !== null ? (int) $existingMap->getMagentoProductId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported', $startTime, $startMemory);
+                $this->logger->info(sprintf('Product id=%d already imported and unchanged, skipping.', $source->getId()));
+                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoProductId() !== null ? (int) $existingMap->getMagentoProductId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported and unchanged', $startTime, $startMemory);
 
                 return;
             }
-
-            $mapped = $this->mapper->map($source);
 
             if ($context->isDryRun()) {
                 $result->incrementImported();
@@ -146,7 +152,21 @@ class ProductImporter implements ImporterInterface
 
         if ($isUpdate) {
             try {
-                $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId());
+                // Explicit store_id=0 (global scope) - without it, both this
+                // load and the save() below ambiently resolve to whatever
+                // store StoreManager::getStore() returns in this CLI
+                // context (store_id=1 in this environment), the same
+                // recurring bug class fixed 8+ times elsewhere this session
+                // (InventoryImporter, ItemAttributeValueImporter,
+                // ProductAttributeValueImporter, RelatedProductImporter,
+                // MediaImporter's category-image fix). Found live this
+                // round: status/name/visibility/etc. were all landing at
+                // store_id=1, leaving store_id=0 (the fallback every OTHER
+                // store view would read) permanently stale - harmless on
+                // this single-store environment (store 1 is the only real
+                // storefront and was always correct), but a genuine
+                // multi-store fresh-install portability gap.
+                $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId(), false, 0);
             } catch (NoSuchEntityException) {
                 $magentoProduct = $this->newProduct();
                 $isUpdate = false;
@@ -155,13 +175,34 @@ class ProductImporter implements ImporterInterface
             $magentoProduct = $this->newProduct();
         }
 
+        $magentoProduct->setData('store_id', 0);
         $magentoProduct->setSku($mapped->getSku());
         $magentoProduct->setName($mapped->getName());
         $magentoProduct->setStatus($mapped->isEnabled()
             ? ProductStatus::STATUS_ENABLED
             : ProductStatus::STATUS_DISABLED);
         $magentoProduct->setVisibility($mapped->getVisibility());
-        $magentoProduct->setAttributeSetId($mapped->getAttributeSetId());
+
+        // Only ever set at creation, never on update. $mapped->
+        // getAttributeSetId() is always Magento's Default set
+        // (DefaultAttributeSetProvider) - ProductMapper has no way to
+        // compute the real EC-CUBE-category-derived attribute set, which
+        // is assigned separately and later by
+        // assign:product-attribute-sets. Setting this unconditionally on
+        // every persist() (the previous behavior) would silently revert an
+        // already-correctly-assigned product back to Default on its next
+        // update - orphaning every ecs_* value already written
+        // against the real attribute set (Magento's EAV save silently
+        // drops values for attributes outside the product's current
+        // attribute set, with no exception - the exact "Round 31 false
+        // success" failure mode this module has hit before). Found live
+        // this round via a careful diff before executing the newly-fixed
+        // hash-gate update at scale - would have reverted ~18,000 products'
+        // attribute sets in a single --execute run.
+        if (!$isUpdate) {
+            $magentoProduct->setAttributeSetId($mapped->getAttributeSetId());
+        }
+
         // dtb_product.cad_unavailable_check -> boolean EAV attribute.
         // Set via setCustomAttribute so it is skipped silently if the
         // attribute has not been created yet, rather than failing the

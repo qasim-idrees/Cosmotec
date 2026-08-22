@@ -94,16 +94,22 @@ class ItemImporter implements ImporterInterface
             }
 
             $existingMap = $this->itemMapRepository->getByEccubeItemId($source->getId());
+            $mapped = $this->mapper->map($source);
 
-            if ($this->isAlreadyDone($existingMap)) {
+            // Gated on BOTH status and content hash - a plain status check
+            // (the previous behavior) meant any item that ever reached
+            // IMPORTED/UPDATED could never be touched again by either
+            // import:group-products or sync:group-products, no matter what
+            // changed in EC-CUBE source afterward - the exact same bug
+            // found and fixed in CategoryImporter (see BUILD_STATUS.md),
+            // now confirmed to affect this importer too.
+            if ($this->isAlreadyDone($existingMap) && $existingMap->getContentHash() === $mapped->getContentHash()) {
                 $result->incrementSkipped();
-                $this->logger->info(sprintf('Item id=%d already imported, skipping.', $source->getId()));
-                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoProductId() !== null ? (int) $existingMap->getMagentoProductId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported', $startTime, $startMemory);
+                $this->logger->info(sprintf('Item id=%d already imported and unchanged, skipping.', $source->getId()));
+                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoProductId() !== null ? (int) $existingMap->getMagentoProductId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported and unchanged', $startTime, $startMemory);
 
                 return;
             }
-
-            $mapped = $this->mapper->map($source);
 
             if ($context->isDryRun()) {
                 $result->incrementImported();
@@ -146,7 +152,12 @@ class ItemImporter implements ImporterInterface
 
         if ($isUpdate) {
             try {
-                $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId());
+                // Explicit store_id=0 (global scope) - same fix as
+                // ProductImporter::persist(), same recurring bug class
+                // found 8+ times this session. Without it, both this load
+                // and save() below ambiently resolve to whatever store
+                // StoreManager::getStore() returns in CLI context.
+                $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId(), false, 0);
             } catch (NoSuchEntityException) {
                 // Mapped product was deleted out-of-band; fall back to creating a new one.
                 $magentoProduct = $this->newProduct();
@@ -156,15 +167,28 @@ class ItemImporter implements ImporterInterface
             $magentoProduct = $this->newProduct();
         }
 
+        $magentoProduct->setData('store_id', 0);
         $magentoProduct->setSku($mapped->getSku());
         $magentoProduct->setName($mapped->getName());
         $magentoProduct->setStatus($mapped->isEnabled()
             ? ProductStatus::STATUS_ENABLED
             : ProductStatus::STATUS_DISABLED);
         $magentoProduct->setVisibility($mapped->getVisibility());
-        $magentoProduct->setAttributeSetId($mapped->getAttributeSetId());
 
         if (!$isUpdate) {
+            // Only ever set at creation, never on update. $mapped->
+            // getAttributeSetId() is always Magento's Default set
+            // (DefaultAttributeSetProvider) - ItemMapper has no way to
+            // compute the real EC-CUBE-category-derived attribute set,
+            // which is assigned separately and later by
+            // assign:item-attribute-sets. Setting this unconditionally on
+            // every persist() would silently revert an already-correctly-
+            // assigned item back to Default on its next update - orphaning
+            // every ecs_* value already written against the real
+            // attribute set. Same fix as ProductImporter, applied here
+            // before it could ever be triggered (items currently show 0
+            // pending hash-gate updates, but the bug was equally real).
+            $magentoProduct->setAttributeSetId($mapped->getAttributeSetId());
             $magentoProduct->setTypeId($mapped->getTypeId());
             // StoreManagerInterface::getWebsite() (no arg) resolves the
             // "current" website from ambient request/area context, which is

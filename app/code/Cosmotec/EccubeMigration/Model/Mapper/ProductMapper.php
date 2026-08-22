@@ -55,18 +55,33 @@ class ProductMapper implements MapperInterface
         // negative-stock-quantity precedent of clamping to a safe default
         // rather than silently rejecting the product. priceNeedsReview
         // flags this so the product lands in Magento disabled (per its
-        // existing product_status_id, which is NULL/not 1 for all 136) and
-        // its map row is marked STATUS_NEEDS_REVIEW instead of the normal
-        // imported/updated status, per the explicit business decision.
+        // existing display_status_id=2, correctly reflected below via
+        // getDisplayStatusId() === 1) and its map row is marked
+        // STATUS_NEEDS_REVIEW instead of the normal imported/updated
+        // status, per the explicit business decision.
         $priceNeedsReview = $source->getPrice() === null;
         $price = $priceNeedsReview ? '0.00' : $source->getPrice();
 
+        // dtb_product.product_status_id is NULL for all 27,590 products in
+        // the live dataset without a single exception (confirmed via a
+        // full-table GROUP BY) - this EC-CUBE installation never populates
+        // it at all, unlike dtb_item.display_status_id (already correctly
+        // used by GroupedProductStrategy). Using getProductStatusId() here
+        // silently computed enabled=false for the entire catalog - a
+        // critical bug that was dormant/harmless only because
+        // ProductImporter's isAlreadyDone() never re-persisted an
+        // already-imported product (see BUILD_STATUS.md's hash-gate fix),
+        // so it never actually got applied to the ~18,000 products already
+        // correctly enabled from their first import (which used a
+        // different, correct code path at the time). Fixing the hash-gate
+        // bug would have exposed this one immediately - found and fixed in
+        // the same round, before any --execute reached real data.
         return new MagentoSimpleProduct(
             $source->getId(),
             $source->getItemId(),
             $sku,
             $this->resolveName($source),
-            $source->getProductStatusId() === 1,
+            $source->getDisplayStatusId() === 1,
             $source->getItemId() !== null ? Visibility::VISIBILITY_NOT_VISIBLE : Visibility::VISIBILITY_BOTH,
             $this->attributeSetProvider->getDefaultAttributeSetId(),
             $price,
