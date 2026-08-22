@@ -3773,6 +3773,20 @@ already-complete count.
 stated ~71,072 total media relations exactly, confirming full coverage
 with no relations silently missed.
 
+One catch caught before finalizing: `cad2d`/`cad3d` had only ever been
+**dry-run**, never `--execute`d (0 files were importable for either, so
+there was nothing to write) - but dry-run mode never persists rows to
+`eccube_media_map` at all, by design (CLAUDE.md's "dry-run = no writes"
+rule applies to the tracking table too, not just Magento). Their
+`needs_review` counts were real numbers from the CLI output but were
+**not yet recorded** anywhere, so a direct DB query after the other 5
+types momentarily showed only 58,997 total rows, not 71,072. Executed
+both (`--execute`, 0 real imports expected, purely to persist the
+`needs_review` tracking rows for these 12,075 genuinely-missing CAD
+files): `Imported: 0, Errors: 0` for both, confirmed via direct query -
+`eccube_media_map` now totals exactly **71,072** (30,662 imported +
+40,410 needs_review, 0 errors, 0 pending).
+
 Verified real Magento-side data, not just map-table counters:
 `catalog_product_entity_media_gallery` has 30,316 rows, 0 duplicate file
 paths, all linked via `catalog_product_entity_media_gallery_value_to_
