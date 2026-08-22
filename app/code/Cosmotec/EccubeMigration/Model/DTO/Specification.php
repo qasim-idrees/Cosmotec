@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Cosmotec\EccubeMigration\Model\DTO;
 
 use Cosmotec\EccubeMigration\Api\Data\SpecificationInterface;
+use Cosmotec\EccubeMigration\Model\Attribute\SpecificationAttributeCodeResolver;
 
 final class Specification implements SpecificationInterface
 {
@@ -135,7 +136,7 @@ final class Specification implements SpecificationInterface
 
     public function getMagentoAttributeCode(): string
     {
-        return 'eccube_spec_' . $this->id;
+        return (new SpecificationAttributeCodeResolver())->resolve($this->id, $this->nameEn);
     }
 
     public function getClassification(): string

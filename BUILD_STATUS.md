@@ -3880,3 +3880,647 @@ No code changes were needed or made - this was purely a staging-data
 repair, explicitly permitted under the standing "repair migration-
 created data as necessary" grant (not `ct_*`/Coaxial, not EC-CUBE
 source).
+
+## Round 50 — dedicated exhaustive category audit + 4 approved fixes
+
+A field-by-field EC-CUBE-vs-Magento category audit (not "the importer ran
+without errors" - real source-vs-target reconciliation) found 4 real
+issues. All 4 fixed, tested, and verified this round with explicit user
+approval; nothing pushed.
+
+### Fix 1 — 7 mis-parented categories (real hierarchy defect)
+
+EC-CUBE ids 60, 61, 62, 63, 64, 302, 373 (all `parent_category_id=2`,
+i.e. children of "Isolator") were still attached to Magento category 2
+(the store root) instead of category 444 (the correct Isolator category
+created during an earlier round's root-category repair). Root cause:
+that earlier fix corrected category 2 itself but never cascaded to its
+children, and neither `import:categories` (status-gated skip, see Fix 2)
+nor `sync:categories` (EC-CUBE-`update_date`-gated - nothing changed at
+the source) could ever detect a Magento-side-only correction like this.
+
+Verified all 3 preconditions before writing: category 444's own path
+(`1/2/444`) confirms it's genuinely under the real root chain; all 7
+source categories have `parent_category_id=2` in EC-CUBE; `eccube_
+category_id=2` maps to `magento_category_id=444`.
+
+Fix required two API calls, not one - a first attempt using
+`CategoryRepositoryInterface::save()` after `setParentId(444)` updated
+the `parent_id` column but silently left `path`/`level` stale
+(`1/2/20`, not `1/2/444/20`) - `save()` alone does not trigger Magento's
+tree-relocation logic. Corrected using `Magento\Catalog\Model\Category::
+move($parentId, $afterCategoryId)` (the same API the admin category-tree
+drag-and-drop UI uses), then regenerated URL rewrites via
+`CategoryUrlRewriteGenerator` + `UrlPersistInterface::replace()` (same
+pattern as the earlier Isolator fix).
+
+Verified directly: all 7 now show `parent_id=444`, correct `path`
+(`1/2/444/{id}`), `level=3`; hierarchy level distribution across all 324
+categories now exactly matches EC-CUBE's own hierarchy-1..5 counts
+(8/69/169/73/5, both sides identical); 0 orphaned old flat-path
+rewrites, 0 duplicate request_paths; `tube-end.html` correctly retired
+(404) in favor of `isolator/tube-end.html` (200); live breadcrumb
+confirmed `Home > Isolator > Tube end` with a correct link to
+`isolator.html`; no other category's path/parent touched.
+
+### Fix 2 — category description: language fallback + stale-value clearing + hash-gate
+
+Three related fixes, all required together:
+
+1. **`CategoryMapper::resolveDescription()`**: added the same English-
+   preferred/Japanese-fallback pattern already used for product/item
+   names (CLAUDE.md "Language") - previously returned `null` whenever
+   `description_en` was empty, discarding real Japanese-only source
+   content (1 category, id=3, affected in the live dataset). A populated
+   English description is never overwritten by Japanese; returns `null`
+   only when both are genuinely empty.
+2. **`CategoryImporter::persist()`**: description is now always applied
+   via `setData('description', ...)` (including when the resolved value
+   is `null`), not gated on `!== null` - the previous code only ever
+   *set* a description, never cleared one, so a source description that
+   becomes empty stayed stuck in Magento forever. Same bug class as the
+   `ItemAttributeValueImporter`/`ProductAttributeValueImporter` stale-
+   value fixes earlier this session.
+3. **Root architectural fix, discovered while verifying #1/#2 would
+   actually apply to live data**: `CategoryImporter::isAlreadyDone()` was
+   a pure status check (`IMPORTED`/`UPDATED` → always skip) with **no
+   content-hash comparison anywhere in the flow** - meaning any category
+   that ever successfully imported once could never be updated again by
+   either `import:categories` or `sync:categories`, for *any* field, no
+   matter what changed at the source. This directly contradicted
+   `CategorySync`'s own docblock claim of "refreshing fields for records
+   whose update_date moved." Fixed by gating the skip on **both** status
+   and a fresh content-hash comparison (`$existingMap->getContentHash()
+   === $mapped->getContentHash()`), matching the pattern already used
+   correctly elsewhere in this module (e.g. `ItemAttributeValueImporter`).
+
+Verified: a dry-run after the fix correctly flagged exactly 8 categories
+needing an update - category 3 (description) plus the 7 re-parented ones
+from Fix 1 (whose map rows' stored hash had never been refreshed to
+reflect the manual API repair) - and 0 of the other 316. Live-executed:
+`Updated: 8, Errors: 0`. Verified directly: category 3's Magento
+description is byte-for-byte the correct Japanese source text (a 2-byte
+`\r\n`→`\n` difference on a *different*, English-language category was
+investigated and found to be pre-existing line-ending normalization,
+unrelated to this fix, not a content-loss issue); overall description
+count unchanged at 21; the 7 re-parented categories' `path`/`level`
+were **not** reverted by this run. Idempotency confirmed (0 changes on a
+follow-up dry-run). Explicitly tested all 3 required scenarios: English
+description (existing, unaffected), Japanese-only description (category
+3, now correctly migrated), and no-description (verified the attribute
+row is entirely absent, not an empty string - the cleanest possible
+"cleared" state).
+
+### Fix 3 — category image store scope
+
+`MediaImporter::attachCategoryImage()` never explicitly set a store
+scope, so the write landed on whatever store the CLI ambiently resolved
+to (`store_id=1`) rather than global scope (`store_id=0`) - the same bug
+class already fixed 8+ times this session elsewhere, but for categories
+the fix needed **two** attempts:
+- First attempt: `CategoryRepositoryInterface::get($id, 0)` +
+  `Category::setStoreId(0)` + `CategoryRepositoryInterface::save()`.
+  Silently did not work - live-traced to
+  `Magento\Catalog\Model\CategoryRepository::save()`, which **hard-codes**
+  `$storeId = $this->storeManager->getStore()->getId()` (the ambient
+  current store) and completely ignores whatever scope the passed-in
+  category object carries. This is a genuine `CategoryRepositoryInterface`
+  API limitation, not fixable by changing what's set on the object
+  beforehand.
+- Working fix: bypass the repository entirely and use the plain
+  `\Magento\Catalog\Model\Category` model's own legacy `save()` (added
+  `CategoryFactory` as a new constructor dependency) - its resource model
+  correctly reads `$category->getStoreId()`, which does respect an
+  explicit `setStoreId(0)`. Confirmed live before rolling out further:
+  a direct test write landed correctly at `store_id=0`.
+
+Repaired all 197 existing category images (previously only at
+`store_id=1`) using the corrected method itself (via reflection, not a
+separate ad-hoc script) - `repaired: 197, failed: 0`. Verified directly:
+`store_id=0` now has 197 populated rows, `store_id=1` still has all 197
+unchanged (not deleted - both scopes correctly hold the same value, an
+intentional Magento-store-scope-inheritance-compatible state, not a
+duplicate), 0 duplicate `(entity_id, attribute_id, store_id)` rows, all
+197 values match byte-for-byte between scopes. Storefront re-verified
+(category page + direct image URL, both HTTP 200). Confirmed product
+media (`catalog_product_entity_media_gallery` row count unchanged at
+30,316) and product-gallery code paths were untouched by this fix.
+Reviewed the rest of `MediaImporter` for the same ambient-store-context
+pattern - the two product-gallery call sites (`attachGalleryImageViaApi`/
+`resolveStoredFile`) are unaffected because Magento's product media
+gallery data is Global scope, not Store-view scope, so no equivalent fix
+is needed there. Idempotency confirmed (`import:images --type=category`
+dry-run: `Imported: 0, Updated: 0, Skipped: 198, Errors: 0`).
+
+### Fix 4 — collision-safe category URL-key generation
+
+Inspected Magento's actual category URL-rewrite behavior before building
+anything (per the explicit instruction not to assume product behavior is
+identical) rather than guessing: `Magento\Catalog\Model\ResourceModel\
+Category` has **no** leaf-level `url_key` uniqueness check at all
+(confirmed by reading the resource model source), and the live dataset
+already had 18 sets of categories sharing an identical bare `url_key`
+value with zero save errors - in every case because the colliding
+categories sit under *different* parents. The only real uniqueness
+constraint categories are subject to is `url_rewrite`'s own unique
+`(request_path, store_id)` index, and a category's `request_path` is the
+full ancestor chain of url_keys, not the leaf value alone. **This means
+the correct collision scope for categories is per sibling group
+(shared EC-CUBE `parent_category_id`), not the entire flat dataset** -
+architecturally different from the product/item `UrlKeyResolver`, which
+correctly *does* need a flat/global scope since products and items share
+one flat request-path namespace with no hierarchy segmenting it.
+
+Built `Model/UrlKey/CategoryUrlKeyResolver.php`, reusing the existing,
+already-proven `UrlKeySlugifier` (no Magento dependency, portable to a
+fresh install, correct Japanese/non-Latin handling via `iconv(...,
+'ASCII//TRANSLIT//IGNORE', ...)` with a deterministic `category-{id}`
+fallback when slugification yields empty). Algorithm: group the full
+EC-CUBE category dataset by `parent_category_id` (top-level/`null`
+categories share one sentinel group, since they really are Magento
+siblings under the configured root); within each sibling group, a unique
+base slug is kept clean, a genuine collision gets `{base}-{id}` using
+each category's own stable EC-CUBE id (never a sequential counter, never
+random) on every colliding member. Computed once per process against the
+full source dataset (fresh-install-deterministic, not scoped to the
+current Magento catalog), matching the ~324-row scale.
+
+Wired into `CategoryMapper` (replacing the old collision-unsafe
+private `slugify()` method) and into `CategoryImporter::persist()`,
+which now only sets `url_key` on **first creation** (`!$isUpdate`),
+never on update - the previous code recomputed and silently overwrote
+url_key on every single run, including updates, meaning an EC-CUBE name
+edit would have changed a live storefront URL without warning. This
+matches the exact stability pattern already used for product/item
+URL keys.
+
+Tested via a new PHPUnit suite (`Test/Unit/Model/UrlKey/
+CategoryUrlKeyResolverTest.php`, 7 tests) covering: distinct names keep
+clean slugs; a genuine same-parent collision gets id-suffixed; the same
+slug under *different* parents is correctly left unsuffixed (the
+documented, live-observed pattern); top-level categories collide
+correctly as one group; Japanese-only names fall back to
+`category-{id}`; an unmapped id falls back without corrupting the
+cached dataset; determinism across fresh instances. All 7 pass, plus 4
+new/updated tests in `CategoryMapperTest.php` (url-key delegation, the 3
+description-fallback scenarios) - fixed a pre-existing mock double-stub
+bug in that test file's `makeCategory()` helper while adding them (was
+silently letting the *first* configured stub win instead of the
+intended one). Live-verified the resolver against real data: the 5 known
+"vacuum-components-nipple" categories (different parents) correctly keep
+the clean slug unsuffixed; Isolator's 7 children (same parent) all
+resolve to distinct clean slugs; all 8 top-level categories match their
+already-live values exactly (byte-for-byte, confirming this change does
+not disturb any existing URL, only governs future creates).
+
+### Regression testing (Task 5)
+
+- PHP lint across the entire module: clean, 0 errors.
+- `setup:di:compile`: succeeded (run 3 times across this round as each
+  constructor signature changed).
+- XML validation across the entire module: clean, 0 invalid files.
+- `setup:db:status`: "All modules are up to date."
+- `git diff --check`: clean, 0 whitespace issues.
+- Full unit suite (`vendor/bin/phpunit .../Test/Unit/`): **84/84 passing**
+  after fixing one pre-existing stale test
+  (`ProductValidatorTest::testNegativeStockQuantityFails`, asserting a
+  rejection behavior intentionally removed in an earlier round this
+  session - renamed/rewritten to assert the current, correct clamp-to-
+  zero behavior instead; unrelated to this round's category work but
+  caught by running the full suite as requested).
+- Full category reconciliation re-run (source vs Magento, all areas):
+  categories 324=324; hierarchy 8/69/169/73/5 both sides identical;
+  parent-child mismatches 0/324; names 324/324; descriptions 21/21;
+  images 197/197 at both scopes; duplicate url_key values 18 (unchanged,
+  confirmed benign); duplicate url_rewrite request_paths 0; category-item
+  assignments 1833/1833 exact; sort order matches on spot-check; status
+  (`is_active`) 324/324.
+- Storefront re-test, all HTTP 200 with correct content: top-level
+  (`vacuum-valve.html`), nested with products
+  (`feedthrough/high-voltage-low-medium-and-high-current.html`), with
+  image (`feedthrough/coaxial/feedthrough-coaxial-bnc-type.html`, image
+  URL itself also 200), with English description (`others.html`), with
+  Japanese-only description (`viewport.html` - confirmed the actual
+  Japanese text renders in the page body), and the corrected
+  Isolator/Tube-end hierarchy (`isolator/tube-end.html`, with the live
+  breadcrumb confirmed as `Home > Isolator > Tube end`, correctly linked).
+
+### Portability re-review (Task 8, category code specifically)
+
+No hardcoded Magento category ids, root category ids, store ids, or
+website ids in any of the 3 changed/added files - `CategoryUrlKeyResolver`
+takes its data entirely from the injected `CategoryRepositoryInterface`
+(EC-CUBE source); the root category id continues to come from
+`EccubeConfigProviderInterface::getMagentoRootCategoryId()` (externalized
+config, unchanged by this round); the store scope fix uses the literal
+`0` (Magento's universal global-scope constant, not an environment-
+specific id, same as every other store-scope fix this session). No
+dependency on `ct_*`/Coaxial or any pre-existing Magento category
+introduced. Confirmed safe for an empty Magento install.
+
+### Files changed this round
+
+`Model/Import/CategoryImporter.php`, `Model/Import/MediaImporter.php`,
+`Model/Mapper/CategoryMapper.php`, `Model/UrlKey/
+CategoryUrlKeyResolver.php` (new), `Test/Unit/Model/Mapper/
+CategoryMapperTest.php`, `Test/Unit/Model/UrlKey/
+CategoryUrlKeyResolverTest.php` (new), `Test/Unit/Model/Validator/
+ProductValidatorTest.php`. Not committed - working tree changes kept
+local pending review, per this round's explicit instruction.
+
+### Remaining issues after this round
+
+None found requiring further action. The 18 duplicate leaf `url_key`
+values are confirmed benign (different parents, 0 actual request-path
+collisions) and are now protected against becoming genuine collisions in
+the future by Fix 4. All four originally-flagged audit issues are closed
+and verified.
+
+## Round 51 — checkpoint + genuine-blocker audit (ItemImporter/ProductImporter)
+
+Per the explicit instruction: category subsystem untouched further
+unless a new critical/high-severity issue emerged. Reviewed the rest of
+the pipeline against production-migration correctness, prioritizing real
+blockers over polish.
+
+### Checkpoint (before any change)
+
+`git status`: clean except the category-audit round's 7 files (already
+reported). `git diff --check`: clean. Branch `feature/specifications-
+attributes`, 6 commits ahead of origin, 0 behind. No generated/vendor/
+cache/credential files present (`generated/`/`vendor/` gitignored). No
+commit made yet this round either, per instruction.
+
+### CRITICAL — the same "status-only skip, no hash comparison" bug as CategoryImporter, in ItemImporter AND ProductImporter
+
+Systematic grep across every importer with a skip-gate found the exact
+same bug (fixed in Category last round) also present, unfixed, in the
+two most important entity importers in the whole migration -
+`ItemImporter`/`ProductImporter`'s `isAlreadyDone()` was purely a status
+check, with the resulting hash NEVER compared anywhere in the flow.
+`ItemSync`'s own docblock explicitly says "see CategorySync for the
+reasoning; identical pattern here" - confirming this was the same latent
+defect, just never triggered because product/item content essentially
+never got re-evaluated. Fixed identically: gate the skip on both status
+and a fresh content-hash comparison.
+
+**A dry-run immediately after this fix surfaced two further, more
+serious latent bugs this one fix exposed** - both root-caused and fixed
+*before* any `--execute` reached real data:
+
+1. **`dtb_product.product_status_id` is NULL for all 27,590 products
+   without exception** (confirmed via a full-table `GROUP BY`) - this
+   EC-CUBE installation never populates it at all. `ProductMapper::map()`
+   used this always-null field for `enabled`, meaning it had always
+   computed `enabled=false` for the entire catalog - dormant and harmless
+   only because the hash-gate bug above prevented `ProductImporter` from
+   ever re-persisting an already-imported product. Fixed by switching to
+   `getDisplayStatusId() === 1` (the field with real, populated data -
+   1=show/24,695 products, 2=hide/2,895 - exactly matching the pattern
+   already correctly used for items via `GroupedProductStrategy`).
+2. **`persist()` unconditionally called `setAttributeSetId($mapped->
+   getAttributeSetId())` on every save, including updates** - and
+   `ProductMapper`/`ItemMapper` always compute Magento's Default set
+   here, since the real EC-CUBE-category-derived attribute set is
+   assigned separately by `assign:product-attribute-sets`/`assign:item-
+   attribute-sets`. Executing the newly-fixed hash-gate update at scale
+   would have **reverted ~18,000 products' correctly-assigned attribute
+   sets back to Default in a single `--execute` run**, orphaning every
+   `eccube_spec_*` value already written against the real attribute set
+   (Magento's EAV save silently drops values for attributes outside the
+   product's current set, no exception - the exact "Round 31 false
+   success" failure mode this project has hit before). Found via a
+   careful field-by-field diff before executing at scale, not by
+   accident. Fixed by gating `setAttributeSetId()` to create-only
+   (`!$isUpdate`), matching the URL-key stability pattern. Also removed
+   `attributeSetId` from `MagentoSimpleProduct`/`MagentoParentProduct`'s
+   content-hash computation entirely - leaving it in would have meant the
+   hash could never stabilize (mapped value is always Default, forever
+   differing from the real assigned set), causing every product to show
+   as "needing an update" on every single future run.
+
+Verification before executing at scale: full-catalog SQL reconciliation
+(not sampling) of the `enabled` correction found **7,446 products
+currently wrongly disabled that should be enabled, and 742 wrongly
+enabled that should be disabled** (19,402 already consistent) - a
+substantial, genuine, positive data-quality correction, not a risk.
+Visibility reconciliation found exactly **11** products needing
+correction (grouped children incorrectly individually-visible) -
+matching the exact "11 CATALOG+SEARCH" anomaly already noted in an
+earlier round's audit. Price: 0 mismatches across the full catalog.
+
+Executed after all of the above were fixed and verified: `import:group-
+products --execute` (`Updated: 1092, Errors: 0`) and `import:simple-
+products --execute` (`Updated: 27590, Errors: 0`) - the "Updated" count
+covers the whole catalog because the content-hash *formula* itself
+changed (attributeSetId removed), not because every product's visible
+data changed. Verified directly: 0 products left on attribute_set_id=4
+system-wide (the reversion this would have caused, now confirmed absent);
+idempotency confirmed via an immediate follow-up dry-run
+(`Skipped: 1092`/`27590`, 0 updates).
+
+### Second store-scope bug found in the same two importers
+
+While verifying the status fix at full DB scale, found the aggregate
+`status` distribution hadn't actually changed despite `Updated: 27590` -
+traced directly (not guessed) to a second, independent bug: neither
+`ProductImporter::persist()` nor `ItemImporter::persist()` ever
+explicitly set `store_id=0` on load or save, so - unlike 8+ other
+importers already fixed this session - every attribute write from these
+two has always landed on whichever store `StoreManager::getStore()`
+ambiently resolves to in CLI context (`store_id=1` here), leaving the
+`store_id=0` global-default row permanently stale. Confirmed this was
+**not** a broken-storefront issue on this single-store environment
+(store 1, the only real store, always had the correct value - the
+storefront was never wrong), but a genuine multi-store fresh-install
+portability gap: on a fresh Magento install with more than one store
+view, only the first-resolved store would ever receive correct data.
+
+Fixed with the same proven pattern used throughout this session
+(`getById($id, false, 0)` + `setData('store_id', 0)`). Verified the fix
+end-to-end on one real product (a genuinely mis-scoped case) before
+rolling out further: `store_id=0` and `store_id=1` both correctly show
+the target value afterward. Given the prior full-catalog pass had
+already refreshed every stored content-hash to match, the hash-gate
+would have permanently prevented these records from ever being
+naturally re-visited - so, per the explicit instruction to use staging
+aggressively and close out real issues rather than leave known gaps,
+force-invalidated all 27,590 + 1,092 stored hashes and re-executed both
+importers a second time specifically to backfill `store_id=0`.
+`import:group-products --execute`: `Updated: 1092, Errors: 0`, verified
+(`store_id=0` now holds the canonical value; `store_id=1` correctly has
+no redundant override, so Magento's own scope-fallback serves it to the
+one real store - a cleaner end state than before, not just an equivalent
+one). `import:simple-products --execute`: in progress at the time of
+this entry - see verification below once complete.
+
+### Files changed this round
+
+`Model/Import/ItemImporter.php`, `Model/Import/ProductImporter.php`,
+`Model/Mapper/ProductMapper.php`, `Model/DTO/MagentoSimpleProduct.php`,
+`Model/DTO/MagentoParentProduct.php`. Not committed - kept local for
+review per this round's explicit instruction.
+
+### Round 51 conclusion
+
+`import:simple-products --execute` (store-scope backfill) completed:
+`Updated: 27590, Errors: 0`. Verified at scale: `status` distribution at
+`store_id=0` now exactly matches EC-CUBE's `display_status_id`
+distribution (24,695 enabled / 2,895 disabled, byte-for-byte the source
+counts); attribute-set integrity holds (0 new reversions to Default);
+storefront spot-check HTTP 200.
+
+Per explicit instruction, stopped the broad audit here rather than
+continuing further reconciliation passes. Final minimal validation: PHP
+lint clean across the full module, `setup:db:status` up to date, `git
+diff --check` clean. **No production-blocking issues remain.** Working
+tree left uncommitted (12 files) for review, per instruction - not
+committed, not pushed.
+
+## Round 52 - Final handoff
+
+Development concluded per explicit instruction. No further code or data
+changes made this round - read-only git verification only.
+
+`git log --oneline origin/feature/specifications-attributes..HEAD`: 6
+commits ahead of origin (`4fe97e9` down to `b326d67`, the category-audit
+fixes and the Round 51 ItemImporter/ProductImporter fixes are not yet
+among them - see below). Working tree still holds the same 12 modified
+files plus 2 new files (`Model/UrlKey/CategoryUrlKeyResolver.php` and
+its test) from Round 50/51, uncommitted by instruction, pending review.
+No untracked generated/vendor/cache/credential files present.
+
+A Final Production Migration Runbook was produced covering
+preconditions, exact migration command order and dependencies,
+per-phase verification, current staging counts (explicitly marked as
+observed staging data, not hard-coded assumptions), the 136
+`needs_review` products, the ~40,410 `needs_review` media relations,
+sync-behavior support matrix, and rollback/recovery procedure. Not
+duplicated here - see the runbook artifact delivered to the user.
+
+**Status: no production-blocking development work remains.** Not
+committed, not pushed, per instruction.
+
+## Round 53 - Attribute-code convention, EC-CUBE Specification group, category-image investigation
+
+Three targeted items, explicitly scoped by instruction (no broad re-audit).
+
+### 1. Attribute-code naming convention: ec_{id} -> ecs_{normalized_name}_{id}
+
+**Discrepancy found and reported before changing anything** (per
+instruction): the requested change described the *current* convention as
+`ec_{id}`. The actual code (`Model/DTO/Specification.php`) has always used
+`eccube_spec_{id}`, confirmed by reading the code and the live
+`eccube_specification_map`/`eav_attribute` tables (360/360 map rows,
+319/319 real attributes, all `eccube_spec_*`). No `ec_{id}` convention was
+ever in the codebase. Proceeded against the real convention.
+
+**New convention**: `ecs_{normalized_english_name}_{id}` (e.g.
+`ecs_handle_119`), Japanese-only/empty names fall back to `ecs_spec_{id}`.
+Implemented in a new `Model/Attribute/SpecificationAttributeCodeResolver`,
+reusing `UrlKeySlugifier` (hyphens converted to underscores) rather than
+inventing new transliteration behavior. Enforces Magento's real
+attribute-code constraints (`Magento\Eav\Model\Validator\Attribute\Code`:
+`^[a-zA-Z]+[a-zA-Z0-9_]*$`, max 60 chars - confirmed by reading that
+class), truncating the name fragment if needed. 11 new unit tests cover
+the three given examples, Japanese-only/empty fallback, id-suffix
+uniqueness under identical names, length enforcement, and determinism.
+
+**Critical architectural fix found during this work**: `AttributeImporter`
+previously always recomputed the attribute code fresh from the current
+name on every run. That was harmless under the old id-only convention,
+but the new convention embeds the name - so an EC-CUBE name edit after
+creation would have caused the importer to compute a *different* code,
+fail to find the existing attribute, and create a duplicate, exactly the
+"must not auto-rename an existing attribute" failure the instruction
+explicitly warned against. Fixed by adding
+`AttributeImporter::resolveAttributeCode()`, which prefers the code
+already stored on the specification's map row (once a real
+`magento_attribute_id` exists) over recomputing - the same "stable
+once-created identity" pattern already used this session for url_key and
+attribute_set_id. Verified live: a dry run against 5 already-imported
+specifications (including two intentionally re-tested after their staging
+rename) correctly reported "already exists - would verify/update" using
+the *stored* code, not a fresh recompute.
+
+**Second bug found while implementing**: a `new UrlKeySlugifier()`
+default constructor parameter value broke `setup:di:compile` (`Call to
+undefined method UrlKeySlugifier::__set_state()` - Magento's compiled DI
+config writer cannot `var_export()` an object-expression default). Fixed
+by using a nullable default with an internal fallback instead.
+
+**Third bug found while migrating staging**: `Magento\Catalog\Model\
+Product\Attribute\Repository::save()` hard-blocks attribute_code changes
+on an already-created attribute by design (a literal comment in that
+vendor class: "Attribute code must not be changed after attribute
+creation" - it re-looks up the existing model by the already-changed
+code, fails to find it, throws `NoSuchEntityException`). Confirmed the
+underlying resource model (`Magento\Catalog\Model\ResourceModel\Eav\
+Attribute`) has no such restriction, only the normal `(attribute_code,
+entity_type_id)` uniqueness constraint - so the staging rename saved
+through the raw attribute model returned by `Magento\Eav\Model\Config::
+getAttribute()` instead, bypassing the repository's business-rule layer.
+Same bypass pattern as the Category store-scope fix earlier this session.
+
+**Staging migration - chose Approach A (rename in place)**: verified by
+reading vendor source that `attribute_id` (not `attribute_code`) is what
+every EAV value table, `eav_attribute_option`, and `eav_entity_attribute`
+(attribute-set/group assignment) actually key off - renaming
+`attribute_code` is pure metadata with zero effect on any already-written
+data. This is also what best represents a fresh install, since
+`AttributeImporter` now generates `ecs_*` from the very first run.
+Rejected Approach B (delete/recreate) as needlessly risky - it would
+orphan option ids and EAV values already written.
+
+Executed against staging with a dedicated dry-run-first script: 319/319
+real attributes renamed, 0 collisions, 0 invalid codes, 0 errors. All 41
+skip/error-classified `eccube_specification_map` rows (no real attribute)
+self-healed to the new convention on the next `import:attributes
+--execute` (`Created: 0, Updated: 319, Skipped: 41, Errors: 0` -
+confirming full idempotency, no duplicate attributes). Verified:
+`eav_attribute` has exactly 319 `ecs_*` codes and 0 `eccube_spec_*`
+remaining; `eccube_specification_map`/`eccube_specification_option_map`
+fully consistent with `eav_attribute` (0 mismatches); `ct_*` attribute
+count unchanged at 17; a live product's EAV value for a renamed attribute
+(`ecs_50_250`, product 21855) confirmed intact.
+
+**Files changed**: new `Model/Attribute/SpecificationAttributeCodeResolver.php`
++ its test; `Model/DTO/Specification.php`, `Model/Import/AttributeImporter.php`,
+`Model/Import/ItemAttributeValueImporter.php`,
+`Model/Import/ProductAttributeValueImporter.php` (functional prefix-check
+updated to `SpecificationAttributeCodeResolver::PREFIX`),
+`Api/Data/SpecificationInterface.php`, `etc/db_schema.xml` (comment only),
+plus comment-only updates in `ItemImporter.php`, `ProductImporter.php`,
+`ItemAttributeSetAssignmentImporter.php`, `Sync/ItemAttributeValueSync.php`.
+Updated `Test/Unit/Model/DTO/SpecificationTest.php` for the new convention.
+
+### 2. "EC-CUBE Specification" attribute group
+
+Reused the existing group architecture (no new mechanism): added
+`AttributeSetImporter::resolveSpecificationGroupId()`, which looks up a
+group named "EC-CUBE Specification" within the target set by name
+(idempotent - never duplicates) and creates it once if absent, leaving
+`attribute_group_code` unset so Magento's own `Group::beforeSave()`
+derives it via its translit filter, same as the Admin UI would. Replaces
+the old `resolveDefaultGroupId()`, which just grabbed whichever generic
+skeleton group (typically "Product Details") sorted first.
+
+Confirmed via `Magento\Eav\Model\ResourceModel\Entity\Attribute::
+saveInSetIncluding()` (delete-then-insert on `eav_entity_attribute`) that
+re-running `attributeManagement->assign()` with a new group id *moves* an
+already-assigned attribute, not just applies to new ones - so a normal
+re-run of the existing importer correctly migrated all previously-assigned
+attributes into the new group with no special-case code needed. The
+existing content-hash gate (computed from the attribute-code strings
+themselves) naturally detected the mass rename as a change and triggered
+this reassignment.
+
+Executed against staging (`import:attribute-sets --execute`):
+`Updated: 9, Errors: 0`. Verified: exactly one "EC-CUBE Specification"
+group created per set that has any `ecs_*` assignment (9 sets: Feedthrough,
+Vacuum Component, Isolator, Vacuum Valve, Motion Feedthrough, Others,
+Limited, Viewport, Uncategorized - matching the 640 total assignments seen
+before the move); 0 non-`ecs_*` attributes in the new group; 0 `ecs_*`
+attributes left in "Product Details"; "Default" and "Coaxial" sets
+correctly got no group (they never receive `ecs_*` assignments); the
+Coaxial set's 15 groups and 17 `ct_*` attributes fully unchanged. A second
+`--execute` run reported `Skipped: 9` (hash now stable) and group count
+stayed at exactly 9 - confirmed idempotent, no duplicate groups possible.
+
+**Files changed**: `Model/Import/AttributeSetImporter.php` only.
+
+### 3. Category-image admin display investigation
+
+Investigated the reported "image file exists but doesn't show in the
+category edit page" issue end-to-end: DB value and scope
+(`catalog_category_entity_varchar`, attribute `image`), physical file
+existence, the exact code path Magento's Admin UI uses to render it
+(`Magento\Catalog\Model\Category\DataProvider::convertValues()` ->
+`Magento\Catalog\Model\Category\FileInfo::isExist()`), HTTP reachability,
+and the vendor `category_form.xml` UI-component config for the `image`
+field.
+
+**Result: not reproducible in the current staging state.** All 197
+categories with an image value were checked exhaustively: `store_id=0`
+and `store_id=1` values match 100% (0 mismatches), 0 missing physical
+files, 0 malformed/leading-slash values, and a direct simulation of
+`Category\DataProvider::getData()` (the exact server-side call the Admin
+UI form makes) returned a fully correct image array (name/url/size/type)
+with a live-verified HTTP 200 URL. The vendor `image` field is declared
+`visible="true"` with no override in this module. Most likely explanation:
+the report predates this session's Round 50 fix (which resolved exactly
+this class of bug - `CategoryRepository::save()` hard-coding store scope,
+bypassed via the raw `Category` model), or a stale admin/browser cache. No
+code or data issue exists to fix. `cache:flush` was run as a precaution
+(safe, non-destructive, standard step) in case block/layout cache was
+serving a pre-fix page.
+
+**Files changed**: none.
+
+### Regression testing (all three items)
+
+- `php -l` across the full module: clean.
+- `vendor/bin/phpunit` full suite: 92/92 passing, including the 8 new
+  `SpecificationAttributeCodeResolverTest` cases and the rewritten
+  `SpecificationTest::testAttributeCodeIdSuffixIsStableAcrossLabelChanges`.
+- `setup:di:compile`: clean (after fixing the `UrlKeySlugifier` default
+  parameter issue above).
+- `setup:db:status` / `setup:upgrade`: applied the `attribute_code`
+  column comment-only change, now up to date.
+- `indexer:status`: `catalog_product_attribute` and
+  `catalogsearch_fulltext` went stale from the bulk attribute/group
+  changes (schedule-mode cron hadn't caught up yet) - reindexed
+  explicitly; `indexer:status` now shows no indexer requiring a reindex.
+- Storefront spot-check: the renamed attribute's live product (id 21855,
+  a Simple child) 404s by design (`visibility=1`, not individually
+  visible - correct Grouped/Simple architecture behavior, not a
+  regression); its parent Grouped Product page returned HTTP 200.
+- `git diff --check`: clean.
+
+**ct_*/Coaxial/unrelated data**: confirmed untouched throughout - `ct_*`
+attribute count stayed at 17 before and after every change in this round;
+the Coaxial set's group structure and per-group attribute counts are
+byte-for-byte identical before/after.
+
+**Status: all three items complete and verified on staging.** Not
+committed, not pushed, per instruction - working tree now also includes
+this round's changes pending review.
+
+### Round 53 final focused regression check (pre-commit gate)
+
+Explicit 13-point re-verification requested before approving Round 53.
+Read-only against staging DB and current code; no changes made.
+
+Confirmed: exactly 319/319 attributes migrated to `ecs_*` (0
+`eccube_spec_*` remaining anywhere, including a full module grep); all 13
+spot-checked pre-rename `attribute_id` values still hold their original
+id under the new code; ITEM-scope (5,752 values) and PRODUCT-scope
+(174,022 values) EAV data both confirmed still attached to the same
+attribute ids; all 640 attribute-set assignments intact and 100% moved
+into the "EC-CUBE Specification" group in exactly 9 sets (0 stray, 0
+duplicate groups); `eccube_specification_map`/`eccube_specification_option_map`
+fully consistent with live `eav_attribute` (0 mismatches); `ct_*` (17)
+and the Coaxial set (15 groups, same ids) fully unchanged. All four
+resolver rules (existing-mapped uses stored code, brand-new generates
+fresh `ecs_{name}_{id}`, a source name change does NOT alter an
+already-created attribute's code, Japanese-only/empty falls back to
+`ecs_spec_{id}`) verified live by invoking the real `AttributeImporter::
+resolveAttributeCode()` via reflection, not just unit-mocked.
+
+Two apparent discrepancies were investigated and closed as non-issues,
+not regressions:
+- `eav_attribute_option` count (7,173) vs `eccube_specification_option_map`
+  count (7,209): the 36-row gap is 100% explained by
+  `AttributeImporter::addOption()`'s pre-existing, intentional
+  duplicate-label dedup (multiple source `dtb_specification_class` rows
+  with an identical label under one specification correctly share a
+  single Magento option) - confirmed by direct query, unrelated to and
+  untouched by this round's code-renaming or grouping work.
+- 30 option `sort_no` vs `sort_order` differences: 100% of these also
+  fall on options shared by more than one map row via the same dedup
+  mechanism (0 unexplained) - not a genuine ordering regression.
+
+`php -l` (full module), `vendor/bin/phpunit` (92/92), `setup:di:compile`,
+`setup:db:status`, and `git diff --check` all re-run clean.
+
+**Result: PASS. No regression found. No changes made this check.**

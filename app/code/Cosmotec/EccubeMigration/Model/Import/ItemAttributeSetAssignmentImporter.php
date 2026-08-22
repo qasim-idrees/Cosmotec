@@ -40,7 +40,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * in the Round 33 controlled experiment - Magento's EntityManager deletes
  * those rows on save, it does not hide them) - safe here specifically
  * because every eccube_item_map-mapped product currently carries zero
- * eccube_spec_* or ct_* data (verified before this importer was written).
+ * ecs_* or ct_* data (verified before this importer was written).
  */
 class ItemAttributeSetAssignmentImporter implements ImporterInterface
 {

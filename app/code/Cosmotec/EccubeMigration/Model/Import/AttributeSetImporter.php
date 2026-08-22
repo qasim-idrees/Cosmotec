@@ -26,6 +26,7 @@ use Magento\Eav\Api\AttributeGroupRepositoryInterface;
 use Magento\Eav\Api\AttributeManagementInterface;
 use Magento\Eav\Api\AttributeSetManagementInterface;
 use Magento\Eav\Api\AttributeSetRepositoryInterface;
+use Magento\Eav\Api\Data\AttributeGroupInterfaceFactory;
 use Magento\Eav\Api\Data\AttributeSetInterfaceFactory;
 use Magento\Eav\Model\Config as EavConfig;
 use Magento\Framework\Api\SearchCriteriaBuilder;
@@ -61,7 +62,15 @@ use Magento\Framework\Exception\LocalizedException;
  */
 class AttributeSetImporter implements ImporterInterface
 {
-    private const SKELETON_GROUP_CODE_FALLBACK_SORT = 0;
+    /**
+     * All ecs_* attributes are placed into this single, dedicated group in
+     * every attribute set that gets any - never into whatever generic
+     * skeleton group (typically "Product Details") happens to sort first.
+     * Kept apart from ct_* and Coaxial data by construction: this importer
+     * only ever assigns ecs_* codes (see persist()), and never touches any
+     * group in the "Coaxial" set at all (see class docblock).
+     */
+    public const SPECIFICATION_GROUP_NAME = 'EC-CUBE Specification';
 
     public function __construct(
         private readonly SpecificationRepositoryInterface $specificationRepository,
@@ -72,6 +81,7 @@ class AttributeSetImporter implements ImporterInterface
         private readonly AttributeSetManagementInterface $attributeSetManagement,
         private readonly AttributeSetInterfaceFactory $attributeSetFactory,
         private readonly AttributeGroupRepositoryInterface $attributeGroupRepository,
+        private readonly AttributeGroupInterfaceFactory $attributeGroupFactory,
         private readonly AttributeManagementInterface $attributeManagement,
         private readonly SearchCriteriaBuilder $searchCriteriaBuilder,
         private readonly DefaultAttributeSetProvider $defaultAttributeSetProvider,
@@ -230,7 +240,7 @@ class AttributeSetImporter implements ImporterInterface
             $attributeSetId = $this->createAttributeSet($setName);
         }
 
-        $groupId = $this->resolveDefaultGroupId($attributeSetId);
+        $groupId = $this->resolveSpecificationGroupId($attributeSetId);
 
         foreach ($attributeCodes as $index => $code) {
             // assign() is itself idempotent - re-assigning an attribute
@@ -321,26 +331,39 @@ class AttributeSetImporter implements ImporterInterface
         return (int) $created->getAttributeSetId();
     }
 
-    private function resolveDefaultGroupId(int $attributeSetId): int
+    /**
+     * Finds the set's own "EC-CUBE Specification" group by name (never by
+     * a hard-coded id, since each attribute set gets its own group row),
+     * creating it once if this is the set's first ecs_* assignment. Idempotent:
+     * a repeated run always resolves back to the same group instead of
+     * creating a duplicate, because the lookup happens every time before
+     * any create.
+     *
+     * Deliberately does not set attribute_group_code - Magento's own
+     * Group::beforeSave() derives one from the name via its translit
+     * filter (confirmed by reading that class), exactly what the Admin UI
+     * itself relies on when a user types a new group name, so this stays
+     * consistent with how any other Magento-created group gets its code.
+     */
+    private function resolveSpecificationGroupId(int $attributeSetId): int
     {
         $criteria = $this->searchCriteriaBuilder
             ->addFilter('attribute_set_id', $attributeSetId)
             ->create();
 
-        $groups = $this->attributeGroupRepository->getList($criteria)->getItems();
-        $sorted = [];
-
-        foreach ($groups as $group) {
-            $sorted[(int) $group->getSortOrder()] = (int) $group->getAttributeGroupId();
+        foreach ($this->attributeGroupRepository->getList($criteria)->getItems() as $group) {
+            if ($group->getAttributeGroupName() === self::SPECIFICATION_GROUP_NAME) {
+                return (int) $group->getAttributeGroupId();
+            }
         }
 
-        if ($sorted === []) {
-            throw new \RuntimeException(sprintf('Attribute set %d has no attribute groups - cannot assign attributes.', $attributeSetId));
-        }
+        $group = $this->attributeGroupFactory->create();
+        $group->setAttributeSetId($attributeSetId);
+        $group->setAttributeGroupName(self::SPECIFICATION_GROUP_NAME);
 
-        ksort($sorted);
+        $saved = $this->attributeGroupRepository->save($group);
 
-        return array_values($sorted)[self::SKELETON_GROUP_CODE_FALLBACK_SORT] ?? array_values($sorted)[0];
+        return (int) $saved->getAttributeGroupId();
     }
 
     private function getProductEntityTypeId(): int

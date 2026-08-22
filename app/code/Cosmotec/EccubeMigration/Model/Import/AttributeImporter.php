@@ -39,7 +39,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
  *    (SetSpecificationRule keys), unused and invalid specifications are
  *    recorded with an explicit reason and skipped — never silently
  *    dropped (§38).
- *  - Attribute code is deterministic: eccube_spec_{id}, independent of
+ *  - Attribute code is deterministic: ecs_{normalized_name}_{id}, independent of
  *    labels, so relabelling never orphans an attribute (§27).
  *  - Labels are English-first; Japanese is retained in the mapping table
  *    for reference but never invented or translated (§4).
@@ -129,14 +129,15 @@ class AttributeImporter implements ImporterInterface
             // after the dry-run branch had already returned, so every dry
             // run reported "Created" even for specifications already
             // imported in an earlier run.
-            $attributeExists = $this->findExistingAttribute($specification->getMagentoAttributeCode()) !== null;
+            $code = $this->resolveAttributeCode($specification);
+            $attributeExists = $this->findExistingAttribute($code) !== null;
 
             if ($context->isDryRun()) {
                 if ($attributeExists) {
                     $result->incrementUpdated();
                     $this->logger->info(sprintf(
                         '[DRY RUN] Attribute %s ("%s") already exists - would verify/update, %d option(s), filterable=%s',
-                        $specification->getMagentoAttributeCode(),
+                        $code,
                         $specification->getLabel(),
                         $specification->getOptionCount(),
                         $specification->getSelectableCount() > 0 ? 'yes' : 'no'
@@ -145,7 +146,7 @@ class AttributeImporter implements ImporterInterface
                     $result->incrementImported();
                     $this->logger->info(sprintf(
                         '[DRY RUN] Would create attribute %s ("%s") with %d option(s), filterable=%s',
-                        $specification->getMagentoAttributeCode(),
+                        $code,
                         $specification->getLabel(),
                         $specification->getOptionCount(),
                         $specification->getSelectableCount() > 0 ? 'yes' : 'no'
@@ -168,8 +169,8 @@ class AttributeImporter implements ImporterInterface
         float $startTime,
         int $startMemory
     ): void {
-        $code = $specification->getMagentoAttributeCode();
         $existingMap = $this->mapRepository->getBySpecificationId($specification->getId());
+        $code = $this->resolveAttributeCode($specification, $existingMap);
         $attribute = $this->findExistingAttribute($code);
         $isUpdate = $attribute !== null;
 
@@ -333,6 +334,33 @@ class AttributeImporter implements ImporterInterface
         }
 
         return null;
+    }
+
+    /**
+     * Prefers the attribute_code already stored on the specification's map
+     * row over a freshly computed one. This is what makes attribute codes
+     * stable across an EC-CUBE name edit: since the new naming convention
+     * (ecs_{normalized_name}_{id}) embeds the name, recomputing on every
+     * run would silently produce a different code the moment a source name
+     * changes, causing findExistingAttribute() to miss the real attribute
+     * and create a duplicate instead of updating it - orphaning every
+     * EAV value already written against the original attribute_id. Only a
+     * specification with no map row yet, or a map row whose attribute was
+     * never actually created (skip/error/no magento_attribute_id), uses a
+     * freshly computed code.
+     */
+    private function resolveAttributeCode(SpecificationInterface $specification, ?SpecificationMap $existingMap = null): string
+    {
+        $existingMap ??= $this->mapRepository->getBySpecificationId($specification->getId());
+
+        if ($existingMap !== null
+            && $existingMap->getMagentoAttributeId() !== null
+            && $existingMap->getAttributeCode() !== null
+            && $existingMap->getAttributeCode() !== '') {
+            return $existingMap->getAttributeCode();
+        }
+
+        return $specification->getMagentoAttributeCode();
     }
 
     private function findExistingAttribute(string $code): ?\Magento\Catalog\Api\Data\ProductAttributeInterface

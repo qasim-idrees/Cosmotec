@@ -81,16 +81,23 @@ class SpecificationTest extends TestCase
     }
 
     /**
-     * Attribute codes must be deterministic and label-independent, so an
-     * English label edit can never orphan an existing Magento attribute.
+     * The ecs_{normalized_name}_{id} convention: the trailing id is the
+     * permanent identity, so two DTOs built with the same id always share
+     * that suffix even though their name fragments differ - this is what
+     * guarantees an id lookup is always possible. The name fragment itself
+     * is only a readability aid computed from the CURRENT name; whether an
+     * already-created Magento attribute actually gets renamed when the
+     * source name changes is decided by AttributeImporter (it prefers the
+     * stored map row's attribute_code over recomputing), not by this DTO.
      */
-    public function testAttributeCodeIsDeterministicAndLabelIndependent(): void
+    public function testAttributeCodeIdSuffixIsStableAcrossLabelChanges(): void
     {
         $a = $this->make(id: 27, nameEn: 'D', optionCount: 455, usedItem: true, usedProduct: true);
         $b = $this->make(id: 27, nameEn: 'Completely Different Label', optionCount: 455, usedItem: true, usedProduct: true);
 
-        $this->assertSame('eccube_spec_27', $a->getMagentoAttributeCode());
-        $this->assertSame($a->getMagentoAttributeCode(), $b->getMagentoAttributeCode());
+        $this->assertSame('ecs_d_27', $a->getMagentoAttributeCode());
+        $this->assertStringEndsWith('_27', $b->getMagentoAttributeCode());
+        $this->assertNotSame($a->getMagentoAttributeCode(), $b->getMagentoAttributeCode());
     }
 
     public function testEnglishFirstLabelSelection(): void

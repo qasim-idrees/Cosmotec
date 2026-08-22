@@ -124,7 +124,7 @@
            comment="Maps EC-CUBE dtb_specification rows to Magento product EAV attributes">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
         <column xsi:type="int" name="eccube_specification_id" unsigned="true" nullable="false" comment="dtb_specification.id"/>
-        <column xsi:type="varchar" name="attribute_code" nullable="false" length="64" comment="Deterministic Magento attribute code eccube_spec_{id}"/>
+        <column xsi:type="varchar" name="attribute_code" nullable="false" length="64" comment="Deterministic Magento attribute code ecs_{normalized_name}_{id}"/>
         <column xsi:type="int" name="magento_attribute_id" unsigned="true" nullable="true" comment="eav_attribute.attribute_id once created"/>
         <column xsi:type="varchar" name="label_en" nullable="true" length="255" comment="English label used (English-first policy)"/>
         <column xsi:type="varchar" name="label_ja" nullable="true" length="255" comment="Japanese label retained for reference"/>

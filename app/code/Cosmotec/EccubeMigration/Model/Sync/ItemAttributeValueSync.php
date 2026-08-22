@@ -22,7 +22,7 @@ use Cosmotec\EccubeMigration\Model\Import\ItemAttributeValueImporter;
  * reasoning as InventorySync/ImageSync.
  *
  * Value removal IS handled: ItemAttributeValueImporter::persist()
- * explicitly clears every eccube_spec_* attribute assigned to the
+ * explicitly clears every ecs_* attribute assigned to the
  * product's attribute set that is not present in the current resolved
  * value set (a specification removed at source correctly scrubs the
  * stale Magento value, verified after save() like every other write

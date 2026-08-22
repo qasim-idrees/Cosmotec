@@ -65,8 +65,11 @@ interface SpecificationInterface
     public function getSelectableCount(): int;
 
     /**
-     * Deterministic Magento attribute code: eccube_spec_{id}. Stable
-     * across runs and independent of labels by design.
+     * Deterministic Magento attribute code: ecs_{normalized_name}_{id}
+     * (see SpecificationAttributeCodeResolver), e.g. ecs_handle_119. The
+     * trailing id is the permanent identity; the name fragment is a
+     * human-readability aid only and never changes an already-created
+     * attribute's code, even if the EC-CUBE name is edited later.
      */
     public function getMagentoAttributeCode(): string;
 

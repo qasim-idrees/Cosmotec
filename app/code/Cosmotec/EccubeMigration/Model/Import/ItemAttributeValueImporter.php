@@ -18,6 +18,7 @@ use Cosmotec\EccubeMigration\Api\ItemSpecificationValueRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\SpecificationMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
+use Cosmotec\EccubeMigration\Model\Attribute\SpecificationAttributeCodeResolver;
 use Cosmotec\EccubeMigration\Model\ItemMap;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\Specification\MultiValueSpecificationRegistry;
@@ -139,7 +140,7 @@ class ItemAttributeValueImporter implements ImporterInterface
                 $result->incrementImported();
                 $this->logger->info($isSourceRemoval
                     ? sprintf(
-                        '[DRY RUN] Would CLEAR all eccube_spec_* attribute value(s) from Grouped Product id=%d (EC-CUBE item id=%d) - every specification was removed at source',
+                        '[DRY RUN] Would CLEAR all ecs_* attribute value(s) from Grouped Product id=%d (EC-CUBE item id=%d) - every specification was removed at source',
                         $magentoProductId,
                         $item->getId()
                     )
@@ -269,7 +270,7 @@ class ItemAttributeValueImporter implements ImporterInterface
      * save() alone, so the caller must never trust a clean save() as proof
      * of a persisted value - only this comparison is.
      *
-     * Also explicitly clears every eccube_spec_* attribute assigned to the
+     * Also explicitly clears every ecs_* attribute assigned to the
      * product's attribute set that is NOT in the current resolved value
      * set. Without this, a specification removed at EC-CUBE source leaves
      * its old Magento value stale forever - setData() only ever touches
@@ -294,7 +295,7 @@ class ItemAttributeValueImporter implements ImporterInterface
         foreach ($this->attributeManagement->getAttributes(MagentoProduct::ENTITY, (string) $product->getAttributeSetId()) as $attribute) {
             $code = $attribute->getAttributeCode();
 
-            if (str_starts_with($code, 'eccube_spec_') && !array_key_exists($code, $values)) {
+            if (str_starts_with($code, SpecificationAttributeCodeResolver::PREFIX) && !array_key_exists($code, $values)) {
                 $codesToClear[] = $code;
                 $product->setData($code, null);
             }
