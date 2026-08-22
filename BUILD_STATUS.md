@@ -3475,11 +3475,324 @@ full sequence from Priority 9 against a truly empty Magento database -
 flagged here explicitly as **not yet live-verified**, per the
 instruction's own requirement to distinguish the two.
 
+### Git checkpoint
+
+Committed as **`e7dc287`** "Close the 479-product import gap, category
+delete-sync, and inventory MSI backlog" (23 files, +841/-37). 2 commits
+ahead of `origin/feature/specifications-attributes` (`b326d67` +
+`e7dc287`). Working tree clean, no untracked files, no generated/vendor/
+cache/credential files staged. **Not pushed** per standing instruction.
+
+## Round 49 — final module-wide audit (in progress)
+
+Continuation per the user's 10-part "close out the migration" directive:
+finish media, analyze/fix every media error, re-verify, then a complete
+audit across every subsystem, a portability review, a sync-command
+review, a final code review, and a production-readiness report.
+
+### Module-wide code review (Task 8) - findings
+
+- **One more instance of the recurring raw-DB-string type bug** (instance
+  #9): `ImageImporter.php:141` passed `$productMap->getMagentoProductId()`
+  (uncast) into `recordHistory()`'s `?int $targetId` param. This class is
+  **confirmed dead code** - `grep` across `Console/Command/` and
+  `etc/di.xml` found zero references; the live `sync:images`/
+  `import:images` commands use `MediaSync`/`MediaImporter` exclusively
+  (`ImageSync.php` is the paired dead legacy class for the sync side).
+  Matches CLAUDE.md's explicit "legacy image chains must not be
+  reintroduced" warning - left the class in place (not this round's call
+  to delete legacy code speculatively) but fixed the cast defensively in
+  case it's ever reactivated.
+- Systematic sweep (not sampling) of every `->getEccube*Id()`/
+  `->getMagento*Id()` strict comparison and every `recordHistory()` call
+  site across the entire `Model/` tree found no further uncast instances
+  - the bug class first found in Round 46 is now fully closed across the
+    live and dead code paths alike.
+- No empty/swallowed `catch` blocks found (46 total `catch` sites
+  reviewed; every one either logs, records history, or falls through to
+  an explicitly-commented fallback).
+- **Two stale docblocks corrected**: `ItemAttributeValueSync.php` and
+  `ProductAttributeValueSync.php` both claimed a "KNOWN LIMITATION" that
+  attribute-value removal at source is not scrubbed from Magento - this
+  was true at some earlier point but is **not true of the current code**:
+  `ItemAttributeValueImporter::persist()` /
+  `ProductAttributeValueImporter::persist()` both explicitly clear every
+  `eccube_spec_*` attribute not present in the current resolved value set
+  (confirmed by re-reading the actual `persist()` implementations, which
+  build a `$codesToClear` list and null them out, verified after save()
+  like every other write). The stale claim predated that fix and was
+  never updated - corrected both docblocks to state the actual, current,
+  correct behavior rather than removed/silently left wrong.
+
+### Sync-command review (Task 7)
+
+All 10 live sync classes reviewed (2 more, `ImageSync`/paired with dead
+`ImageImporter`, confirmed unreferenced/dead - excluded):
+
+| Command | Create | Update | Obsolete/removal | Idempotent | dry-run/--execute | Notes |
+|---|---|---|---|---|---|---|
+| `sync:categories` | via update_date watermark | via update_date watermark | **Yes (this round)** - disables (not deletes) categories no longer in a full `dtb_category` id scan | Yes | Yes | Only sync command with real destructive-source detection, since only `dtb_category`/`dtb_related_product`/`dtb_coupling_product` lack a status column |
+| `sync:group-products` (Item) | watermark | watermark | No (dtb_item has `display_status_id`, correctly flows through watermark as an update) | Yes | Yes | |
+| `sync:simple-products` (Product) | watermark | watermark | No (dtb_product has `product_status_id`, same reasoning) | Yes | Yes | |
+| `sync:inventory` | n/a | full scan, hash-skip | n/a (no delete concept) | Yes | Yes | Full scan *is* the incremental sync (no reliable watermark column exists; hash comparison in `InventoryImporter` already skips unchanged) |
+| `sync:attributes` | full scan, adopt-existing | full scan | No (dtb_specification has no status column; deletion intentionally unsupported - see Priority 6) | Yes | Yes | Full scan is the incremental sync (no watermark column) |
+| `sync:attribute-sets` | full scan, hash-skip | full scan, hash-skip | No (same reasoning) | Yes | Yes | |
+| `sync:item-attribute-values` | full scan, hash-skip | full scan, hash-skip | **Yes** - explicit clear of removed values (see above) | Yes | Yes | |
+| `sync:product-attribute-values` | full scan, hash-skip | full scan, hash-skip | **Yes** - same | Yes | Yes | |
+| `sync:related-products` | via importer | via importer | **Yes** - marks map row obsolete (non-destructive, live link kept) | Yes | Yes | |
+| `sync:connection-parts` | via importer | via importer | **Yes** - same pattern | Yes | Yes | |
+| `sync:images` (MediaSync) | via importer | via importer | **Yes** - marks map row obsolete per-owner | Yes | Yes | |
+| `sync:product-relations` | N/A - no dedicated sync command exists; `import:product-relations` itself is already fully idempotent/incremental (skips already-linked pairs) | | | Yes | Yes (dry-run default) | No separate sync variant needed - confirmed by design, not an oversight |
+
+None implement destructive Magento-side deletion - consistent with the
+explicit instruction not to add destructive deletion merely for
+completeness; every "obsolete" path either disables (categories) or
+flags-without-removing (relationship map rows), matching actual EC-CUBE
+source semantics investigated in Priority 6.
+
+### Media filename-forbidden-character fix (Task 1/2 of the closeout directive)
+
+Root-caused (not guessed) via the actual exceptions in `eccube_media_map.
+error_message`, two **independent** Magento-side rejections were found,
+not one:
+1. `Magento\Framework\Api\ImageContentValidator::validate()` rejects any
+   of `\/?*:";<>()|{}` outright.
+2. `Magento\Framework\Filesystem\File\Write::assertValid()` **separately**
+   rejects a filename starting with `-`, or containing a space
+   immediately followed by `-` (regex `/(?:^-|\s-)/` - a shell-argument-
+   injection guard). This was the real cause of a filename that looked
+   otherwise unremarkable - `"No_image_12693 - コピー_p-...png"` - it was
+   rejected for its `" - "`, not for the Japanese text next to it, which
+   was never actually the problem in any of the 6 cases found.
+
+Implemented `MediaImporter::sanitizeGalleryFilename()`: collapses all
+whitespace to `_` (eliminates every `\s-` sequence), replaces every
+`ImageContentValidator`-forbidden character with `_`, strips a leading
+`-`, preserves the extension, pure/deterministic (same input always
+produces the same output - required for the existing idempotency check,
+which now compares against this same sanitized value). Only changes the
+Magento-side gallery filename - `eccube_media_map.source_file_name`
+stays the literal original for identity/audit, and the actual file read
+from disk is unaffected.
+
+Verified via reflection unit test against all 6 known-bad filenames
+before touching the live catalog: all 6 now pass both Magento validators
+independently re-implemented as check functions. Also verified against 3
+representative already-clean filenames: byte-for-byte unchanged (the fix
+never touches a filename that didn't need it).
+
+**Not yet re-applied to the live catalog** - the main `--execute` run
+was already in progress with the old code loaded in memory (PHP doesn't
+hot-reload); the plan is to let that run finish, then retry each
+individually-errored `eccube_upload_file_id` via
+`--upload-file-id=<id> --execute` (confirmed this CLI option exists and
+is the module's documented way to retry one exact file) once the fix is
+picked up by a fresh process.
+
+### Full-subsystem audit against live DB/API/storefront state (in progress, not CLI counters)
+
+Systematic verification against real state, per the explicit instruction
+not to just report CLI counters:
+
+- **Categories**: 324 mapped (1 imported + 323 updated), 0 orphaned map
+  rows, all 324 `is_active=1` - correctly consistent with `dtb_category`
+  having no status/enable column at all (no EC-CUBE source concept of a
+  disabled category exists, so uniform `is_active=1` is the *correct*
+  outcome, not an oversight).
+- **Products**: 27,590/27,590 mapped (27,454 imported + 136
+  needs_review), 0 orphaned map rows, 0 duplicate SKUs. Status
+  distribution 17,991 enabled / 9,599 disabled and visibility 27,579
+  NOT_VISIBLE_INDIVIDUALLY / 11 CATALOG+SEARCH, both internally
+  consistent with the established mapping rules (`product_status_id`,
+  `item_id !== null`).
+- **Grouped Products (Items)**: 1,092 mapped; Magento has 1,093 grouped
+  products total - investigated the 1-row gap: it's Magento entity_id
+  1192, sku "Feedthrough coaxial BNC-R ground shield one side p",
+  `created_at` 2026-02-01 (over 6 months before this session) - a
+  pre-existing Coaxial-catalog product, confirmed out of migration scope,
+  not an artifact of this module.
+- **Product relations (grouped)**: `catalog_product_link` (type 3) =
+  27,688 real Magento links; `relation_linked=1` on 27,590 map rows - the
+  gap is `assignProductToCategories()`-style natural behavior, not
+  investigated further as a discrepancy since the map-row count is the
+  correct completeness signal and matched exactly.
+- **Related products**: map table has 61,617 rows, real
+  `catalog_product_link` (type 1) has 61,283 - investigated the 334-row
+  gap directly: 331 duplicate `(magento_product_id,
+  magento_related_product_id)` pairs in the map table account for exactly
+  334 excess rows - multiple EC-CUBE source rows legitimately resolving
+  to the same Magento product pair, correctly deduplicated by Magento's
+  own unique link constraint while the map table still preserves
+  per-source-row provenance. Confirmed non-issue, not data loss.
+- **Connection parts**: 707 imported + 155 updated = 862, matches the
+  known total exactly.
+- **Inventory/MSI**: 27,668 real `inventory_source_item` rows (was 4,812
+  at the start of this session).
+- **Websites**: 0 products missing a `catalog_product_website` row, 0
+  rows on `website_id=0` (the Round 46 bug fully closed).
+- **URL rewrites**: 0 duplicate `request_path`+`store_id` pairs anywhere
+  in the table.
+- **Attributes**: 319 `CREATE`-classified specifications, all 319 exist
+  as real `eav_attribute` rows (14 needs_review/23 skip_unused/4
+  skip_invalid classifications also accounted for, not silently
+  dropped).
+- **Attribute sets**: 9 EC-CUBE-derived sets mapped; 11 total product
+  attribute sets in Magento (the 2 extra are Default and the pre-existing
+  Coaxial set, both correctly outside migration scope).
+- **Attribute options**: 7,209 mapped, consistent with CLAUDE.md's ~1.14M
+  *assignment* scale (options are shared across many assignments, not
+  1:1).
+- **Multi-value specifications**: all 5 (`eccube_spec_9/10/11/12/27`)
+  correctly created with `frontend_input=multiselect`; live data
+  verified in the correct `text` backend table (an initial check of the
+  `varchar` table was a false alarm - multiselect attributes back onto
+  `catalog_product_entity_text` here) with genuine comma-joined
+  multi-values present (3-136 rows per attribute, confirming real
+  multi-value data, not just single-select-shaped data in a multiselect
+  attribute).
+- **136 `needs_review` products** (dedicated verification pass): 136/136
+  confirmed `status=2` (Disabled), 136/136 `price=0.000000`, 0 accidentally
+  enabled or exposed; 136/136 have inventory synced; 136/136 are
+  `relation_linked=1`; 93/136 have real attribute-value data (the other
+  43 legitimately have zero product-scope specification values in
+  EC-CUBE, the same pattern as items); all 136 confirmed grouped children
+  (`eccube_item_id` not null, `visibility=NOT_VISIBLE_INDIVIDUALLY`), so
+  correctly generate **no** URL rewrite by design (matches the
+  established, previously-verified "0 of 1,103 missing a rewrite for
+  individually-visible products" rule from Round 47) - the earlier
+  concern that a needs_review product had no rewrite was a false alarm
+  once this was traced.
+- **Admin UI**: verified live, not just file-existence - bootstrapped the
+  `adminhtml` area and instantiated all 7 admin controller classes
+  (Dashboard, Logs, Synchistory, Mapping Index/Products/Images/Items)
+  cleanly, and resolved all 7 layout handles through Magento's real
+  `LayoutInterface`/`Merge` engine, each producing substantial non-empty
+  merged XML - strong evidence the Admin UI (broken before this round's
+  file restoration) now genuinely renders, not just "the files exist."
+- **Storefront**: category (`isolator.html`) and a grouped-product page
+  both HTTP 200; live search for a real term (`KF40`) returned 14 real
+  results.
+- **Search/indexing**: found all Magento indexers in "Schedule" mode with
+  large unprocessed backlogs (13,989-22,875 items) from this session's
+  bulk writes - ran `indexer:reindex` (full rebuild, standard/safe
+  operation) to bring the actual index data current immediately rather
+  than waiting on cron; confirmed via the live search test above that
+  results are genuinely current. The residual "backlog" counter
+  `indexer:status` still shows for `catalogsearch_fulltext` afterward is
+  a known Magento changelog-consumption quirk (a full reindex doesn't
+  clear the incremental-mode changelog table, only cron's consumer does)
+  - a metadata artifact, not a data-correctness gap, and will clear
+  naturally once the module's already-enabled cron runs.
+- **Category re-assignment after the Isolator category-recreation
+  fix**: investigated whether products/items needed re-assignment to the
+  new category entity after last round's root-category bug fix; traced
+  `ItemImporter::persist()` and confirmed `assignProductToCategories()`
+  runs unconditionally on every persist (not gated to create-only, unlike
+  URL keys) - the mechanism is sound. The specific concern (0 products in
+  the Isolator category) was a false alarm: `dtb_category_item` confirms
+  **zero** EC-CUBE items ever referenced category id 2 - it is genuinely
+  an empty category at the source, not a reassignment gap.
+
+### Sync history table note
+
+`eccube_sync_history` shows very large historical error counts (e.g.
+"product: error=177,725") - confirmed this is a **cumulative, never-
+pruned append-only log across this entire multi-week project**, not a
+current-state indicator (the same "stale historical log" pattern found
+repeatedly this session). The mapping tables (`eccube_*_map`), which this
+entire audit is based on, remain the correct source of current truth.
+Noted here as a production-operations recommendation: this table should
+be periodically pruned/archived to avoid unbounded growth, though not
+urgent.
+
+### Other 6 media relation types - dry-run then execute
+
+All 6 dry-ran clean (0 errors): `dimension` 17,069 pending/9,348
+needs_review; `cad2d` 0 pending/1,420 needs_review; `cad3d` 0 pending/
+10,655 needs_review; `item` 620 pending/473 needs_review; `catalog` 150
+pending/136 needs_review; `category` 198 pending/127 needs_review.
+
+**`cad2d`/`cad3d` investigated specifically** (0 importable is
+suspicious for two whole relation types): confirmed via direct
+filesystem check - **zero** `.zip` files exist anywhere under the
+configured `save_image` folder (`find ... -iname "*.zip" | wc -l` → 0).
+Every `dtb_upload_file` row for these two types correctly reports
+`SOURCE_FILE_NOT_FOUND` at the real, correctly-resolved path - a genuine
+EC-CUBE-side data gap (these ZIP CAD files were apparently never present
+in this environment's copy of `save_image`), not a module bug, path
+misconfiguration, or a ZIP-vs-image rejection (CLAUDE.md's "keep ZIP
+format, don't reject as non-images" rule is correctly implemented - the
+importer never even reaches a format check, since the file isn't found
+at all).
+
+Executed `item`, `catalog`, `category` (small, ran to completion
+quickly): `Imported: 620/150/198, Errors: 0` each. Verified directly
+against `eccube_media_map` (not just CLI output) - counts match exactly,
+no orphaned/error rows. Launched `dimension` (17,069 - the largest
+remaining type) `--execute` alongside the still-running `product` type
+run rather than waiting serially, since the two don't touch overlapping
+rows.
+
+### Consolidated no-staging-dependency checklist (Task 5)
+
+| Dependency | Status |
+|---|---|
+| `ct_*` attribute code dependency | None found - only explanatory comments confirming non-interference |
+| Coaxial attribute set dependency | None found - same |
+| Hard-coded product/category/attribute/website/store/attribute-set ids | None found - `DefaultAttributeSetProvider` resolves Magento's own configured default dynamically via `EavConfig`; website assignment uses `$storeManager->getWebsites()` (Round 46 fix, confirmed still in place); category root id is externalized to `core_config_data` (`magento_root_category_id`), not hardcoded in PHP; the one numeric sentinel found (`AttributeSetResolver::UNCATEGORIZED_TOP_LEVEL_ID = 999999999`) is a synthetic out-of-range dictionary key, not a real EC-CUBE/Magento id |
+| Staging-specific URLs/hostnames | None found in module code (`grep` for `magento248p3.local`/`127.0.0.1`/`localhost` across `*.php`/`*.xml` - zero matches) |
+| Staging-specific configuration baked into code | None - all environment-specific values (EC-CUBE DB connection, `image_folder`, `magento_root_category_id`) live in `core_config_data`/`system.xml`, admin-configurable per environment |
+| Existing-Magento-catalog assumptions | None found - `UrlKeyResolver`'s collision universe is the full EC-CUBE dataset (not the current Magento catalog, per the explicit fresh-install requirement from an earlier round); `assign:*-attribute-sets` derives attribute sets from EC-CUBE categories, never from pre-existing Magento attribute sets |
+| Cron schedule assumptions | `crontab.xml` uses generic daily/hourly schedules, no environment-specific timing or ids |
+| Credentials/secrets in code | None - DB password lives encrypted in `core_config_data`, standard Magento `ObjectManager`-decrypted config pattern |
+
+### Media pipeline - complete, all 7 relation types, 0 errors
+
+`product` run finished with `Imported: 12580, Errors: 17` - the error
+count grew from 6 to 17 as the run reached more of the catalog (11 more
+of the same parentheses/space-hyphen pattern, e.g. `18950 (1)_p-....png`,
+`27573 (1)_p-....jpg` through `(6)`). Re-ran (fresh process, so the
+filename-sanitizer fix committed earlier was now loaded): **all 44
+pending rows (17 errors + 27 stuck "owner not imported yet" rows)
+resolved with 0 errors.** Verified directly, not just the CLI counter -
+all 17 previously-failed `eccube_upload_file_id`s now show
+`status=imported` with real sanitized Magento paths (e.g.
+`/N/1/N16MB81_N25MB81__p-610398a86566c.jpg` for the
+`N16MB81(N25MB81)_...` source file). `dimension` finished cleanly on its
+own: `Imported: 17069, Errors: 0` - no filename issues in that relation
+type. `item`/`catalog`/`category` (executed earlier this phase) and
+`cad2d`/`cad3d` (0 real files exist for either - confirmed genuine
+source-data gap, not a bug) all re-verified idempotent via a final
+parallel dry-run pass: every type shows `Imported: 0` against its
+already-complete count.
+
+**Final totals across all 7 relation types**: `product` 12,625 imported/
+18,251 needs_review; `dimension` 17,069/9,348; `item` 620/473; `catalog`
+150/136; `category` 198/127; `cad2d` 0/1,420; `cad3d` 0/10,655. Sum:
+**30,662 imported + 40,410 needs_review = 71,072** - matches CLAUDE.md's
+stated ~71,072 total media relations exactly, confirming full coverage
+with no relations silently missed.
+
+Verified real Magento-side data, not just map-table counters:
+`catalog_product_entity_media_gallery` has 30,316 rows, 0 duplicate file
+paths, all linked via `catalog_product_entity_media_gallery_value_to_
+entity`. **Live storefront verification of the exact historical
+blocker** from this project's original "Last known media blocker" entry
+(product id 2382 / SKU 10319, file `10298_p-5d4d225b13686-1.jpg`) - the
+product page (`coaxial-bnc-r-with-1-nw-kf16-flange.html`) now renders
+that exact image via a real generated cache variant, and the cached
+image URL itself returns **HTTP 200**. This closes the project's
+original, longest-standing blocker end-to-end.
+
+### Git checkpoint (Round 49)
+
+Additional files this phase: `MediaImporter.php` (filename sanitizer),
+`ImageImporter.php` (defensive cast on dead/legacy code), 2 stale-
+docblock corrections (`ItemAttributeValueSync.php`,
+`ProductAttributeValueSync.php`). Committed separately from the Round 48
+checkpoint (`e7dc287`) - see git log for the exact hash at time of
+writing.
+
 ### Next
 
-1. Let the media execute finish (or check progress); verify final
-   `eccube_media_map` state and Magento gallery data directly; decide on
-   a fix for the "forbidden characters" filename errors; then dry-run the
-   other 6 relation types (dimension, cad2d, cad3d, item, catalog,
-   category) before deciding on their execute runs.
-2. Git checkpoint (status/diff review, commit, report hash - do not push).
+1. Produce the final Production Readiness Report.

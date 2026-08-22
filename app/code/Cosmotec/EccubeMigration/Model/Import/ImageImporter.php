@@ -138,7 +138,7 @@ class ImageImporter implements ImporterInterface
 
             if ($this->isUnchanged($existingMap, $mapped)) {
                 $result->incrementSkipped();
-                $this->recordHistory($context, $image->getId(), $productMap->getMagentoProductId(), SyncHistory::STATUS_SKIPPED, 'Unchanged', $startTime, $startMemory);
+                $this->recordHistory($context, $image->getId(), (int) $productMap->getMagentoProductId(), SyncHistory::STATUS_SKIPPED, 'Unchanged', $startTime, $startMemory);
 
                 return;
             }

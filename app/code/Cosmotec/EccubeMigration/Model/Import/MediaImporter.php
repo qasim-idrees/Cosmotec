@@ -448,7 +448,7 @@ class MediaImporter implements ImporterInterface
     private function attachGalleryImageViaApi(MediaFileInterface $file, int $magentoProductId): string
     {
         $product = $this->magentoProductRepository->getById($magentoProductId, true);
-        $baseName = basename($file->getFileName());
+        $baseName = $this->sanitizeGalleryFilename(basename($file->getFileName()));
         $existingEntries = $product->getMediaGalleryEntries() ?? [];
 
         // Idempotency: an entry for this source file already present means
@@ -574,6 +574,56 @@ class MediaImporter implements ImporterInterface
         $primaryId = $this->primaryCache[$cacheKey];
 
         return $primaryId !== null && $primaryId === $file->getUploadFileId();
+    }
+
+    /**
+     * EC-CUBE source filenames are not guaranteed to be safe as a Magento
+     * gallery filename - two independent Magento-side checks were found to
+     * reject real source filenames during a live run: (1)
+     * Magento\Framework\Api\ImageContentValidator::validate() rejects
+     * `\/?*:";<>()|{}` outright ("Provided image name contains forbidden
+     * characters"), and (2) Magento\Framework\Filesystem\File\Write::
+     * assertValid() separately rejects any filename starting with `-` or
+     * containing a space immediately followed by `-` (a shell-argument-
+     * injection guard - this was the actual cause of one error whose
+     * filename otherwise looked unremarkable: "No_image_12693 - コピー_...",
+     * rejected for its " - ", not for containing Japanese text).
+     *
+     * This only changes the filename used for the Magento-side gallery
+     * entry (setName()/setFile()) - eccube_media_map.source_file_name
+     * (already unmodified elsewhere in this class) remains the literal
+     * EC-CUBE filename for identity/audit purposes, and the actual source
+     * file read from disk (getAbsolutePath()) is never touched. Pure
+     * character substitution, no randomness - the same source filename
+     * always sanitizes to the same result, keeping the idempotency check
+     * in attachGalleryImageViaApi() (which compares against this same
+     * sanitized value) stable across repeated runs.
+     */
+    private function sanitizeGalleryFilename(string $fileName): string
+    {
+        // Collapse all whitespace to "_" first - this alone eliminates
+        // every "\s-" sequence Filesystem\Write::assertValid() rejects,
+        // without needing a separate pass for that rule.
+        $sanitized = preg_replace('/\s+/u', '_', $fileName) ?? $fileName;
+
+        // Replace every character ImageContentValidator forbids
+        // (\/?*:";<>()|{}) with "_", preserving position/readability
+        // rather than collapsing them away.
+        $sanitized = preg_replace('/[\\\\\/?*:";<>()|{}]/u', '_', $sanitized) ?? $sanitized;
+
+        // A leading "-" alone (no preceding space) also matches
+        // Filesystem\Write::assertValid()'s "^-" branch.
+        $sanitized = ltrim($sanitized, '-');
+
+        if ($sanitized === '') {
+            // Every character was forbidden/whitespace (never observed in
+            // practice, but a byte-for-byte guarantee against writing an
+            // empty gallery filename) - fall back to a name derived from
+            // the original, itself sanitized the same way.
+            $sanitized = 'file_' . preg_replace('/[^A-Za-z0-9._-]/u', '_', $fileName);
+        }
+
+        return $sanitized;
     }
 
     private function detectMimeType(string $absolutePath): string

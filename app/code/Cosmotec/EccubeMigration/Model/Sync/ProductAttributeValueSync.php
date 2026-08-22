@@ -18,9 +18,9 @@ use Cosmotec\EccubeMigration\Model\Import\ProductAttributeValueImporter;
 /**
  * Same reasoning as ItemAttributeValueSync - ProductAttributeValueImporter
  * is already hash-incremental via eccube_product_map.specification_value_hash,
- * so a full scan through getProductIdsWithValues() is already a sync. See
- * ItemAttributeValueSync for the same stated known limitation on value
- * removal (not item/product removal).
+ * so a full scan through getProductIdsWithValues() is already a sync.
+ * Value removal is handled the same way ItemAttributeValueImporter does -
+ * see ItemAttributeValueSync's docblock.
  */
 class ProductAttributeValueSync implements ImporterInterface
 {
