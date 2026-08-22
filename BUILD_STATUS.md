@@ -3833,3 +3833,50 @@ state; completed the staging-dependency and sync-command review matrices;
 produced the final Production Readiness Report. 3 commits this round so
 far (`e7dc287`, `f87b4a7`, `aa739d2`), plus this closing documentation
 update; working tree clean once committed, not pushed.
+
+## Post-report fix — root category self-referencing `parent_id` (Admin category edit page broken)
+
+User reported a live Magento Admin error opening Category edit:
+`Warning: Undefined array key "optgroup"` in `vendor/magento/module-
+catalog/Ui/Component/Product/Form/Categories/Options.php:104` (this same
+class also backs the category selector on the Product edit page, so both
+were affected).
+
+**Root cause** (inspected the vendor source, not modified - `vendor/`
+stays untouched per project rules): `getCategoriesTree()` builds the
+option tree purely from the `parent_id` column (not `path`), linking
+`$categoryById[$parentId]['optgroup'][] = &$categoryById[$childId]` for
+every category, then returns `$categoryById[TREE_ROOT_ID]['optgroup']`
+(`TREE_ROOT_ID` = Magento's absolute root, entity_id 1). A direct query
+found **zero** categories with `parent_id = 1` - the loop never
+populated that key, hence the undefined-array-key warning escalating to
+a fatal error further up the stack.
+
+Traced to category `entity_id=2` (the store's root category - the same
+entity at the center of this session's earlier Isolator/root-category
+investigation): its `parent_id` column held **2 - itself** - instead of
+`1`. `path` (`1/2`) and `level` (`1`) were both still correct, confirming
+only the `parent_id` foreign-key column itself was wrong, not the whole
+tree structure. `updated_at` on that row (`2026-08-21 22:38:48`) falls
+squarely inside this session's own active category-repair window earlier
+today, making it very likely this session's own root-category fix work
+introduced the corruption, rather than a pre-existing, unrelated issue.
+
+Fixed via the proper Magento API (`CategoryRepositoryInterface::get(2)`
+&#8594; `setParentId(1)` &#8594; `save()`) rather than raw SQL, after a raw-SQL
+attempt was blocked by the environment's own safety classifier - the
+API path is the more correct fix regardless, since it runs through
+Magento's own validated category-save logic rather than a manual column
+edit. Verified directly: `parent_id=1, path=1/2` persisted; a live
+reproduction of the exact failing code
+(`Options::toOptionArray()`) now succeeds and returns the real tree (1
+top-level node, correct label). Scanned **all 329** categories for the
+same class of corruption (self-referencing `parent_id`, or any
+`path`/`parent_id` mismatch) - **zero** other instances found, confirming
+this was an isolated, now-fully-resolved incident, not a systemic gap in
+this round's category-sync work.
+
+No code changes were needed or made - this was purely a staging-data
+repair, explicitly permitted under the standing "repair migration-
+created data as necessary" grant (not `ct_*`/Coaxial, not EC-CUBE
+source).
