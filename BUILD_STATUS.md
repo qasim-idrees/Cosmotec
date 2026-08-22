@@ -4524,3 +4524,264 @@ not regressions:
 `setup:db:status`, and `git diff --check` all re-run clean.
 
 **Result: PASS. No regression found. No changes made this check.**
+
+## Round 54 - url_key generation moved entirely to Magento's native mechanism
+
+Explicit business decision: EC-CUBE url keys must never be migrated. The
+module's own `UrlKeyResolver`/`CategoryUrlKeyResolver` (deterministic,
+collision-safe, EC-CUBE-id-suffixed slugs - built and approved earlier
+this session) are removed entirely. On creation, url_key is left
+completely unset so Magento generates it natively from the entity name;
+on update/sync, url_key is never touched at all - not a change in
+behavior there, since both importers already gated url_key-setting to
+create-only, but now nothing sets it even on create.
+
+### Investigation before changing anything
+
+Traced the real, live Magento mechanism rather than assuming:
+
+- `Magento\CatalogUrlRewrite\Observer\ProductUrlKeyAutogeneratorObserver`
+  (`catalog_product_save_before`) and `CategoryUrlPathAutogeneratorObserver`
+  (`catalog_category_save_before`) are Magento's own native
+  auto-generation, firing on every product/category save (repository or
+  raw model - confirmed by hitting it via the raw `Category` model
+  directly, the same path `MediaImporter`'s store-scope fix already
+  uses). Both call the entity's own `formatUrlKey($name)` when url_key is
+  unset. Magento's own core CSV product import
+  (`Magento\CatalogImportExport\Model\Import\Product::getUrlKey()`) uses
+  this exact same `formatUrlKey($name)` fallback when no url_key column
+  is supplied - confirming this is the correct "native Magento" reference
+  behavior, not something to reimplement.
+- Live-corrected a factual error carried in this session's own earlier
+  `UrlKeySlugifier` docblock: `catalog/seo/product_url_transliteration`
+  actually defaults to **1 (enabled)** in Magento's own
+  `module-catalog/etc/config.xml` - not disabled as previously assumed.
+  On a fresh install this means both Product's and Category's
+  `formatUrlKey()` go through full transliteration by default, not just
+  Category's.
+- Live-confirmed a real edge case this creates: a name that transliterates
+  to `''` (Japanese-only) makes `CategoryUrlPathAutogeneratorObserver`
+  throw a `LocalizedException` ("...category name can not be used to
+  generate Latin URL key...") and blocks the category from saving at all;
+  the product equivalent does not throw, it simply leaves url_key unset.
+  Measured against the real dataset: 2 of 330 categories (絶縁碍子,
+  フィードスルー...) and 8 of 27,590 simple products (all 8 are the
+  existing "*****"-named needs_review placeholder products, already
+  disabled) would hit this. 0 of 1,092 items. Both existing importers'
+  outer try/catch (`catch (... | LocalizedException | \Throwable $e)`)
+  already catches this and records `STATUS_ERROR` - a bad/edge-case
+  source record failing gracefully and remaining retryable, exactly this
+  project's established error-handling philosophy, not a crash and not a
+  silently invented fallback slug. Deliberately did NOT add a custom
+  fallback for this case - the instruction was explicit that EC-CUBE ids
+  must never be used as a url_key suffix again, and this is the
+  documented, disclosed consequence of that decision (2 categories).
+- Live-confirmed Magento's own uniqueness enforcement independently
+  rejects true duplicates: two new products with the same name ->
+  `Magento\UrlRewrite\Model\Exception\UrlAlreadyExistsException`; two new
+  categories with the same name AND parent ->
+  `Magento\Framework\Exception\CouldNotSaveException` ("URL key for
+  specified store already exists"). Both caught the same way as the
+  Japanese-name case. No collision-avoidance code of our own is needed or
+  present.
+
+### Files changed
+
+- `Model/Import/ItemImporter.php`, `Model/Import/ProductImporter.php`,
+  `Model/Import/CategoryImporter.php`: removed the `setUrlKey()` calls and
+  the `UrlKeyResolver`/`CategoryUrlKeyResolver` constructor dependencies.
+- `Model/Sync/ItemSync.php`, `Model/Sync/ProductSync.php`: dropped the
+  now-removed constructor parameter they passed through to their parent.
+- `Model/Mapper/CategoryMapper.php`: no longer computes or passes a
+  url_key to the DTO.
+- `Model/DTO/MagentoCategory.php`, `Api/Data/MagentoCategoryInterface.php`:
+  removed the `urlKey` property/getter entirely (including from the
+  content hash - the migration must never carry an EC-CUBE-derived
+  url-key value at all, not even as dead data).
+- `Api/ItemRepositoryInterface.php`, `Api/ProductRepositoryInterface.php`,
+  `Model/Repository/ItemRepository.php`, `Model/Repository/ProductRepository.php`:
+  removed `getAllIdsAndNames()`, which existed solely to feed
+  `UrlKeyResolver`'s collision map and had no other caller.
+- Deleted `Model/UrlKey/UrlKeyResolver.php`,
+  `Model/UrlKey/CategoryUrlKeyResolver.php`, and
+  `Test/Unit/Model/UrlKey/CategoryUrlKeyResolverTest.php` - fully dead
+  code once nothing calls them.
+- `Model/UrlKey/UrlKeySlugifier.php`: kept (still used by
+  `SpecificationAttributeCodeResolver` for attribute-code normalization,
+  an unrelated concern) - docblock corrected per the transliteration
+  finding above and repointed at its actual remaining caller.
+- `Test/Unit/Model/Mapper/CategoryMapperTest.php`: removed the resolver
+  mock and `testUrlKeyDelegatesToResolver`, replaced with a test asserting
+  `MagentoCategory` carries no `getUrlKey()` at all.
+
+### Testing performed (staging, fully isolated synthetic entities - never touched real migrated data)
+
+Used fabricated EC-CUBE ids (8888887-8888894, never real source ids) fed
+directly into each importer's real `persist()` method via reflection -
+the actual production code path, not a reimplementation - then deleted
+every test entity afterward via each repository's own delete path
+(`Registry::register('isSecureArea', true)` - Magento's own sanctioned
+pattern for CLI-context deletion, the same guard `bin/magento` core
+commands use, not a bypass of business logic).
+
+- New Simple Product: created with no url_key set -> Magento generated
+  `test-widget-alpha` from the name. No EC-CUBE id anywhere in it.
+- New Grouped Product (Item): same result pattern, `test-grouped-gamma`.
+- New Category: same result pattern, `test-category-epsilon`.
+- Existing product/item/category, name changed then re-persisted
+  (simulating a sync run): name updated on the entity in all three cases;
+  url_key stayed byte-for-byte identical in all three cases.
+- Existing product/item/category re-persisted with no change
+  (idempotent re-import): url_key unchanged in all three cases.
+- Duplicate product name -> Magento's own `UrlAlreadyExistsException`.
+  Duplicate category name+parent -> Magento's own `CouldNotSaveException`.
+  Neither produced an EC-CUBE-id-suffixed url_key from our code, because
+  our code no longer generates one at all.
+- Japanese-only category name -> Magento's own `LocalizedException`,
+  caught by the importer's existing catch-all.
+- Full-module grep: 0 remaining reads of any EC-CUBE url-key/slug field,
+  0 remaining references to `UrlKeyResolver`/`CategoryUrlKeyResolver` or
+  their `resolveFor*()` methods anywhere in the module.
+- **Existing staging data verification**: took a SHA-256 hash + row-count
+  snapshot of every real `url_key` value (28,757 product/item rows, 328
+  category rows) before any of this round's testing, and again after -
+  **byte-for-byte identical, 0 rows changed**. Confirmed separately that
+  every synthetic test entity was fully removed (0 orphaned test
+  products/categories/map rows/url_rewrite rows of any kind remained).
+- Heuristic count of existing url_keys carrying old-resolver
+  ID-suffix/fallback evidence (informational only - left completely
+  unchanged per instruction, no mass-migration performed or proposed):
+  2,844 of 27,590 Simple Products, 147 of 1,092 Items, 2 of 324
+  Categories.
+- `php -l` (full module): clean. `vendor/bin/phpunit`: 85/85 (92 minus 7:
+  the 7 deleted `CategoryUrlKeyResolverTest` cases, net of the 1-for-1
+  `CategoryMapperTest` swap). `setup:di:compile`: clean (ran once after
+  the constructor signature changes; no further DI-relevant edits after
+  that). `setup:db:status`: up to date, no schema change this round.
+  `git diff --check`: clean.
+
+**Status: implemented and verified on staging. Not committed, not
+pushed, per instruction - awaiting approval.**
+
+## Round 55 - empty-url_key edge case: Magento-standard hash fallback
+
+Follow-up focused review of Round 54, per explicit instruction not to
+reintroduce EC-CUBE id suffixes or the removed resolvers.
+
+### Strategy presented before implementing
+
+When Magento's own `formatUrlKey($name)` returns `''` (Japanese-only
+names - confirmed live: transliteration is Magento's own real
+`config.xml` default, not a staging override), fall back to
+`{prefix}-{first 12 hex chars of sha256(name)}` (e.g.
+`category-4e962592884e`), computed identically for products, items and
+categories. This mirrors Magento's own existing precedent for the exact
+same failure mode: `Magento\Eav\Model\Entity\Attribute\Group::beforeSave()`
+falls back to `md5(strtolower($name))` when its own translit-based code
+generation is empty or reserved - not a new invention. A SKU-based
+fallback was considered and rejected: this project's synthesized SKUs
+(`ProductMapper::resolveSku()`, `ECCUBE-PRODUCT-{id}`) would have
+reintroduced an EC-CUBE id into the URL for exactly the affected records.
+
+New `Model/UrlKey/UrlKeyFallbackGenerator.php`: a pure function of the
+name only, no injected dependencies, no dataset-wide scanning or
+collision-map building (unlike the removed resolvers) - actual collision
+handling is left entirely to Magento's own save-time uniqueness
+enforcement, consistent with "prefer Magento's own mechanism." Wired into
+`CategoryImporter`/`ItemImporter`/`ProductImporter`'s create-only branch
+only: `formatUrlKey($mapped->getName())` is checked first, and the
+fallback is used only when that's empty - every other entity still gets
+a pure Magento-native url_key, untouched by this module.
+
+### Correction to a count repeated in Round 54
+
+Round 54's "2 categories affected" claim was wrong, caught during this
+round's live re-verification. The original check queried Magento category
+entity_id 2 and 6 directly (assuming entity_id equals eccube_category_id),
+but entity_id 2 is this store's own root "Default Category" - not an
+EC-CUBE-imported one at all. Properly joined through
+`eccube_category_map` this round: **1 category** genuinely has a
+Japanese-only mapped name (eccube_category_id=1, magento_id=6,
+"フィードスルー...") - not 2. The 8-product count was already correct.
+0 items, unchanged.
+
+More importantly: **all 9 of these entities already have a valid,
+non-empty url_key** - `category-1` and `product-{22423..22430}`,
+generated by the now-removed old resolver before this session's changes,
+sitting untouched exactly as instructed. Nothing in the current staging
+catalog is actually broken. The fallback generator is a forward-looking
+guarantee for a fresh Magento install processing these same source
+records for the first time, and for any future genuinely-new EC-CUBE
+record with an untransliteratable name - not a repair of current data,
+and no re-import of these 9 records was performed or is needed.
+
+### Testing performed (synthetic entities only, same isolation pattern as Round 54)
+
+- Normal English product/category name -> pure native url_key, no
+  fallback triggered.
+- Duplicate English product name -> Magento's own
+  `UrlAlreadyExistsException`, not our code.
+- Japanese-only product name -> non-empty `product-{hash}` fallback,
+  save succeeds (previously silently left unset).
+- Japanese-only category name -> non-empty `category-{hash}` fallback,
+  save succeeds (previously threw and blocked the category entirely).
+- Punctuation/special-character name (`Tube / Fitting-Size (mm) 100%!`)
+  -> native generation handles it fine, no fallback triggered.
+  Whitespace-only name -> correctly falls back (defensive case; real
+  source names never reach this empty in practice, since
+  Mapper::resolveName() already guarantees non-empty).
+- Re-import of a fallback-keyed entity (idempotent) -> url_key unchanged.
+- Sync after changing the source name (still Japanese-only, so the name
+  change would itself produce a DIFFERENT hash if recomputed) ->
+  url_key stayed byte-for-byte identical - proves the fallback is only
+  ever consulted at creation, exactly like native generation.
+- Existing staging url_keys: SHA-256 snapshot before/after (28,757
+  product/item rows, 328 category rows) - byte-for-byte identical, 0
+  changed. 0 orphaned test entities/map rows left behind.
+- Full-module grep: 0 EC-CUBE url-key/slug field reads, 0 references to
+  the removed resolvers or their `resolveFor*()` methods, 0 ID-suffix
+  generation.
+- `php -l` (full module): clean. `vendor/bin/phpunit`: 90/90 (85 + 5 new
+  `UrlKeyFallbackGeneratorTest` cases). `setup:di:compile`: clean.
+  `setup:db:status`: up to date. `git diff --check`: clean.
+
+### Files changed
+
+New `Model/UrlKey/UrlKeyFallbackGenerator.php` +
+`Test/Unit/Model/UrlKey/UrlKeyFallbackGeneratorTest.php`. Modified
+`Model/Import/CategoryImporter.php`, `Model/Import/ItemImporter.php`,
+`Model/Import/ProductImporter.php` (the create-only fallback check),
+`Model/Sync/CategorySync.php`, `Model/Sync/ItemSync.php`,
+`Model/Sync/ProductSync.php` (constructor passthrough only).
+
+**Status: implemented and verified on staging. No business decision
+required (mechanical, deterministic, zero EC-CUBE data in the result).
+Not committed, not pushed - awaiting approval.**
+
+### Round 56 - final focused verification (strategy approved, pre-commit)
+
+No code changes - verification only. Confirmed live: fallback format is
+exactly `product-{12 hex}` / `item-{12 hex}` / `category-{12 hex}`
+(sha256 of the name, deterministic - same name always produces the same
+value, re-confirmed with a direct call to `UrlKeyFallbackGenerator`
+outside any importer). Collision behavior demonstrated directly: two
+Grouped Products created with the identical Japanese-only name (so an
+identical fallback hash, the realistic collision case) - the first
+saves, the second is rejected by Magento's own
+`UrlAlreadyExistsException`, same as every other duplicate-url_key case
+this project has hit. For two *different* names coincidentally hashing
+to the same 12 hex chars (a true birthday-bound collision, not
+reproducible as a live test): the collision probability at this
+catalog's scale is ~1.46e-6, and Magento's save-time uniqueness check
+would reject it exactly the same way - no additional collision-handling
+code was needed or added. Re-confirmed all three entity types
+(Product/Item/Category) create successfully from a Japanese-only name
+with zero errors (Item specifically had not been individually tested for
+this in Round 55). Re-confirmed a normal English name never enters the
+fallback path at all (no `product-`/`item-`/`category-` prefix). Full
+existing-staging-data snapshot (SHA-256, 28,757 product/item + 328
+category url_key rows) byte-for-byte identical to every prior round's
+baseline. `php -l`, URL-key-specific tests (13/13), full suite (90/90),
+`setup:di:compile`, `setup:db:status`, `git diff --check` all clean.
+
+**Result: PASS on every point. Ready to commit on approval.**

@@ -37,8 +37,6 @@ interface MagentoCategoryInterface
 
     public function getDescription(): ?string;
 
-    public function getUrlKey(): ?string;
-
     /**
      * Hash of every field above, used by CategorySync (Milestone 8) to
      * detect whether the source record actually changed before writing.

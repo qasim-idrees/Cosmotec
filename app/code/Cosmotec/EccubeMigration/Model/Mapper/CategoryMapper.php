@@ -15,14 +15,12 @@ use Cosmotec\EccubeMigration\Api\Data\CategoryInterface;
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
 use Cosmotec\EccubeMigration\Model\DTO\MagentoCategory;
 use Cosmotec\EccubeMigration\Model\Mapper\Exception\UnresolvedParentException;
-use Cosmotec\EccubeMigration\Model\UrlKey\CategoryUrlKeyResolver;
 
 class CategoryMapper implements MapperInterface
 {
     public function __construct(
         private readonly EccubeConfigProviderInterface $config,
-        private readonly CategoryMapRepositoryInterface $categoryMapRepository,
-        private readonly CategoryUrlKeyResolver $urlKeyResolver
+        private readonly CategoryMapRepositoryInterface $categoryMapRepository
     ) {
     }
 
@@ -46,8 +44,7 @@ class CategoryMapper implements MapperInterface
             true,
             true,
             $source->getSortNo(),
-            $this->resolveDescription($source),
-            $this->urlKeyResolver->resolveForCategory($source->getId())
+            $this->resolveDescription($source)
         );
     }
 

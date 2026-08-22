@@ -16,22 +16,19 @@ use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
 use Cosmotec\EccubeMigration\Model\CategoryMap;
 use Cosmotec\EccubeMigration\Model\Mapper\CategoryMapper;
 use Cosmotec\EccubeMigration\Model\Mapper\Exception\UnresolvedParentException;
-use Cosmotec\EccubeMigration\Model\UrlKey\CategoryUrlKeyResolver;
 use PHPUnit\Framework\TestCase;
 
 class CategoryMapperTest extends TestCase
 {
     private EccubeConfigProviderInterface $config;
     private CategoryMapRepositoryInterface $categoryMapRepository;
-    private CategoryUrlKeyResolver $urlKeyResolver;
     private CategoryMapper $mapper;
 
     protected function setUp(): void
     {
         $this->config = $this->createMock(EccubeConfigProviderInterface::class);
         $this->categoryMapRepository = $this->createMock(CategoryMapRepositoryInterface::class);
-        $this->urlKeyResolver = $this->createMock(CategoryUrlKeyResolver::class);
-        $this->mapper = new CategoryMapper($this->config, $this->categoryMapRepository, $this->urlKeyResolver);
+        $this->mapper = new CategoryMapper($this->config, $this->categoryMapRepository);
     }
 
     public function testTopLevelCategoryUsesConfiguredRootCategory(): void
@@ -79,15 +76,18 @@ class CategoryMapperTest extends TestCase
         $this->assertSame('category-7', $mapped->getName());
     }
 
-    public function testUrlKeyDelegatesToResolver(): void
+    /**
+     * The migration must never generate or import a url_key - Magento's
+     * own native generation (from the entity name, at save time) is
+     * solely responsible. See CategoryImporter::persist(), which never
+     * calls setCustomAttribute('url_key', ...) at all.
+     */
+    public function testMappedCategoryHasNoUrlKeyConcept(): void
     {
-        $this->config->method('getMagentoRootCategoryId')->willReturn(2);
-        $category = $this->makeCategory(id: 9, parentId: null, name: 'Boots');
-        $this->urlKeyResolver->method('resolveForCategory')->with(9)->willReturn('boots-9');
-
-        $mapped = $this->mapper->map($category);
-
-        $this->assertSame('boots-9', $mapped->getUrlKey());
+        $this->assertFalse(
+            method_exists(\Cosmotec\EccubeMigration\Model\DTO\MagentoCategory::class, 'getUrlKey'),
+            'MagentoCategory must not carry a url_key - Magento owns url_key generation natively'
+        );
     }
 
     public function testJapaneseOnlyDescriptionIsUsedWhenEnglishIsEmpty(): void

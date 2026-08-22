@@ -20,7 +20,7 @@ use Cosmotec\EccubeMigration\Model\ProductMap;
 use Cosmotec\EccubeMigration\Model\ProductMapFactory;
 use Cosmotec\EccubeMigration\Model\Reader\ProductReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
-use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyResolver;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ProductValidator;
 use Magento\Catalog\Model\Product as MagentoProduct;
 use Magento\Catalog\Model\Product\Attribute\Source\Status as ProductStatus;
@@ -50,7 +50,7 @@ class ProductImporter implements ImporterInterface
         private readonly MagentoProductRepositoryInterface $magentoProductRepository,
         private readonly MagentoProductFactory $magentoProductFactory,
         private readonly StoreManagerInterface $storeManager,
-        private readonly UrlKeyResolver $urlKeyResolver,
+        private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -229,10 +229,15 @@ class ProductImporter implements ImporterInterface
             // resolution put 19,072 of 28,277 products on website_id=0
             // ("Admin"), live-confirmed this session.
             $magentoProduct->setWebsiteIds(array_keys($this->storeManager->getWebsites()));
-            // See ItemImporter::persist() for why this is set only at
-            // creation, and UrlKeyResolver's docblock for the full
-            // deterministic collision-handling algorithm.
-            $magentoProduct->setUrlKey($this->urlKeyResolver->resolveForProduct($mapped->getEccubeProductId()));
+        }
+        // url_key: never set on update - see ItemImporter::persist() for
+        // the full reasoning (Magento's own ProductUrlKeyAutogeneratorObserver
+        // generates it natively). On CREATE only, the same
+        // UrlKeyFallbackGenerator edge-case fallback as ItemImporter -
+        // see there for why (8 real products in this dataset hit this:
+        // the existing "*****"-named needs_review placeholders).
+        if (!$isUpdate && $magentoProduct->formatUrlKey($mapped->getName()) === '') {
+            $magentoProduct->setUrlKey($this->urlKeyFallbackGenerator->generate('product', $mapped->getName()));
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);

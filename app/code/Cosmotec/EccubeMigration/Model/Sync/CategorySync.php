@@ -19,6 +19,7 @@ use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\ImportResult;
 use Cosmotec\EccubeMigration\Model\Mapper\CategoryMapper;
 use Cosmotec\EccubeMigration\Model\Reader\CategoryReader;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\CategoryValidator;
 use Magento\Catalog\Api\CategoryRepositoryInterface as MagentoCategoryRepositoryInterface;
 use Magento\Catalog\Api\Data\CategoryInterfaceFactory as MagentoCategoryFactory;
@@ -46,6 +47,7 @@ class CategorySync extends CategoryImporter
         SyncHistoryRepositoryInterface $syncHistoryRepository,
         MagentoCategoryRepositoryInterface $magentoCategoryRepository,
         MagentoCategoryFactory $magentoCategoryFactory,
+        UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         ImportLogger $logger,
         private readonly EccubeCategoryRepositoryInterface $eccubeCategoryRepository
     ) {
@@ -58,6 +60,7 @@ class CategorySync extends CategoryImporter
             $syncHistoryRepository,
             $magentoCategoryRepository,
             $magentoCategoryFactory,
+            $urlKeyFallbackGenerator,
             $logger
         );
     }

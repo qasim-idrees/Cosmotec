@@ -21,6 +21,7 @@ use Cosmotec\EccubeMigration\Model\Mapper\CategoryMapper;
 use Cosmotec\EccubeMigration\Model\Mapper\Exception\UnresolvedParentException;
 use Cosmotec\EccubeMigration\Model\Reader\CategoryReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\CategoryValidator;
 use Magento\Catalog\Api\CategoryRepositoryInterface as MagentoCategoryRepositoryInterface;
 use Magento\Catalog\Api\Data\CategoryInterfaceFactory as MagentoCategoryFactory;
@@ -48,6 +49,7 @@ class CategoryImporter implements ImporterInterface
         private readonly SyncHistoryRepositoryInterface $syncHistoryRepository,
         private readonly MagentoCategoryRepositoryInterface $magentoCategoryRepository,
         private readonly MagentoCategoryFactory $magentoCategoryFactory,
+        private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -177,15 +179,25 @@ class CategoryImporter implements ImporterInterface
         // which is what those two importers' clearing logic uses.
         $magentoCategory->setData('description', $mapped->getDescription());
 
-        // Only ever set at creation, never on update - matches
-        // ItemImporter/ProductImporter's UrlKeyResolver usage exactly, so
-        // an already-imported category's url_key stays stable across a
-        // later EC-CUBE name edit instead of silently changing the live
-        // storefront URL every time this importer/sync runs (the previous
-        // behavior recomputed and overwrote it unconditionally on every
-        // persist() call, update included).
-        if (!$isUpdate && $mapped->getUrlKey() !== null) {
-            $magentoCategory->setCustomAttribute('url_key', $mapped->getUrlKey());
+        // url_key is deliberately never set by this importer on update -
+        // Magento's own CategoryUrlPathAutogeneratorObserver
+        // (catalog_category_save_before) generates it natively from
+        // getName() the first time a category is saved with none set, and
+        // this importer never touches an already-populated url_key
+        // afterward - so an already-imported category's URL stays stable
+        // even if the EC-CUBE name changes later, without this module
+        // duplicating Magento's own generation/collision logic.
+        //
+        // On CREATE only, one edge case native generation cannot handle
+        // itself: a name that transliterates to '' (e.g. Japanese-only -
+        // live-confirmed against 2 real categories this session), which
+        // makes the native observer throw rather than accept an empty
+        // key. UrlKeyFallbackGenerator supplies a deterministic,
+        // EC-CUBE-id-free fallback for exactly that case only - see its
+        // own docblock. Every other category still gets a pure Magento-
+        // native url_key, untouched by this module.
+        if (!$isUpdate && $magentoCategory->formatUrlKey($mapped->getName()) === '') {
+            $magentoCategory->setUrlKey($this->urlKeyFallbackGenerator->generate('category', $mapped->getName()));
         }
 
         $saved = $this->magentoCategoryRepository->save($magentoCategory);

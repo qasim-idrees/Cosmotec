@@ -12,22 +12,20 @@ namespace Cosmotec\EccubeMigration\Model\UrlKey;
 
 /**
  * Pure string transform, deliberately with no Magento dependency at all -
- * not `Magento\Catalog\Model\Product\Url::formatUrlKey()`, which only
- * transliterates when the store's "Use Web Server Rewrites"/transliteration
- * config is enabled (`Product::XML_PATH_APPLY_TRANSLITERATION_TO_URL`) and
- * otherwise just replaces whitespace with hyphens and lowercases, leaving
- * any other character (including raw Japanese) untouched. Relying on that
- * would make the migration's URL keys depend on a target store's admin
- * config, which cannot be assumed for a fresh Magento install. This class
- * always behaves the same way regardless of target environment.
+ * not `Magento\Catalog\Model\Product\Url::formatUrlKey()` (config-gated
+ * transliteration; live-confirmed this project's own environment actually
+ * has `catalog/seo/product_url_transliteration` = 1, Magento's own real
+ * config.xml default, not a store-specific override) or
+ * `Magento\Framework\Filter\Translit` directly - both drop Japanese to an
+ * empty string via their shared iconv `ascii//ignore//translit` fallback
+ * (zero Japanese entries in the conversion table), which for Japanese-only
+ * text is exactly the "empty/unusable result" case a caller must detect
+ * and give a deterministic fallback for.
  *
- * Also NOT `Magento\Framework\Filter\Translit` - live-checked this session:
- * its conversion table covers Latin diacritics, Cyrillic, Hebrew, Greek and
- * Bengali, but has zero Japanese (hiragana/katakana/kanji) entries. Its own
- * iconv fallback (`ascii//ignore//translit`) silently drops untransliterable
- * characters, which for Japanese-only text produces an empty result - this
- * is exactly the "empty/unusable key" case the caller must detect and give
- * a deterministic fallback for (see UrlKeyResolver).
+ * Currently used only by SpecificationAttributeCodeResolver, for EC-CUBE
+ * specification attribute-code normalization - NOT for url_key generation,
+ * which is deliberately left entirely to Magento's own native mechanism
+ * (see CategoryImporter/ItemImporter/ProductImporter).
  */
 class UrlKeySlugifier
 {

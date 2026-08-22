@@ -23,8 +23,7 @@ final class MagentoCategory implements MagentoCategoryInterface
         private readonly bool $active,
         private readonly bool $includeInMenu,
         private readonly int $position,
-        private readonly ?string $description,
-        private readonly ?string $urlKey
+        private readonly ?string $description
     ) {
         $this->contentHash = hash('sha256', implode('|', [
             $this->name,
@@ -33,7 +32,6 @@ final class MagentoCategory implements MagentoCategoryInterface
             $this->includeInMenu ? '1' : '0',
             $this->position,
             $this->description ?? '',
-            $this->urlKey ?? '',
         ]));
     }
 
@@ -70,11 +68,6 @@ final class MagentoCategory implements MagentoCategoryInterface
     public function getDescription(): ?string
     {
         return $this->description;
-    }
-
-    public function getUrlKey(): ?string
-    {
-        return $this->urlKey;
     }
 
     public function getContentHash(): string

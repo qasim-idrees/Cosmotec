@@ -20,7 +20,7 @@ use Cosmotec\EccubeMigration\Model\ItemMapFactory;
 use Cosmotec\EccubeMigration\Model\Mapper\ItemMapper;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
-use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyResolver;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ItemValidator;
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
 use Magento\Catalog\Model\Product as MagentoProduct;
@@ -53,7 +53,7 @@ class ItemImporter implements ImporterInterface
         private readonly MagentoProductFactory $magentoProductFactory,
         private readonly CategoryLinkManagementInterface $categoryLinkManagement,
         private readonly StoreManagerInterface $storeManager,
-        private readonly UrlKeyResolver $urlKeyResolver,
+        private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -200,15 +200,27 @@ class ItemImporter implements ImporterInterface
             // ambient dependency - it always returns the real, non-admin
             // websites regardless of execution context.
             $magentoProduct->setWebsiteIds(array_keys($this->storeManager->getWebsites()));
-            // Only ever set at creation, never on update - see
-            // UrlKeyResolver's docblock for the full deterministic
-            // collision-handling algorithm. Computing it only here (not in
-            // the Mapper, which has no Magento-side state) is what makes an
-            // already-imported product's url_key stable even if its
-            // EC-CUBE name is edited later - re-imports never reach this
-            // branch, so a later name change cannot retroactively change
-            // the URL.
-            $magentoProduct->setUrlKey($this->urlKeyResolver->resolveForItem($mapped->getEccubeItemId()));
+        }
+        // url_key is deliberately never set by this importer on update -
+        // Magento's own ProductUrlKeyAutogeneratorObserver
+        // (catalog_product_save_before) generates it natively from
+        // getName() the first time a product is saved with none set, and
+        // this importer never touches an already-populated url_key
+        // afterward - so an already-imported item's URL stays stable even
+        // if the EC-CUBE name changes later, without this module
+        // duplicating Magento's own generation/collision logic.
+        //
+        // On CREATE only: unlike Category's observer, Product's silently
+        // leaves url_key unset rather than throwing when the name
+        // transliterates to '' - still not a good outcome, so the same
+        // deterministic, EC-CUBE-id-free fallback is applied here too
+        // (0 items in this dataset actually hit this, live-confirmed, but
+        // the guarantee must hold in general). See
+        // UrlKeyFallbackGenerator's own docblock for why it uses neither
+        // the EC-CUBE id nor SKU (this project's synthesized SKUs would
+        // reintroduce an EC-CUBE id for exactly the affected records).
+        if (!$isUpdate && $magentoProduct->formatUrlKey($mapped->getName()) === '') {
+            $magentoProduct->setUrlKey($this->urlKeyFallbackGenerator->generate('item', $mapped->getName()));
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);
