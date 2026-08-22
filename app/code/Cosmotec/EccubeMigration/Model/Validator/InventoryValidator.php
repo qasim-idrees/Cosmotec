@@ -23,15 +23,14 @@ class InventoryValidator implements ValidatorInterface
         }
 
         $errors = [];
-        $stockQuantity = $source->getStockQuantity();
 
-        if ($stockQuantity !== null && $stockQuantity < 0) {
-            $errors[] = sprintf(
-                'Product id=%d has a negative stock_quantity (%d)',
-                $source->getProductId(),
-                $stockQuantity
-            );
-        }
+        // Negative stock_quantity is a legitimate EC-CUBE
+        // oversold/backorder state, not bad data (same 109 products
+        // confirmed live in Round 48's ProductValidator fix - Magento has
+        // no concept of negative available stock). InventoryMapper::map()
+        // already clamps this to max(0, ...) and marks out of stock -
+        // rejecting it here made that clamp unreachable, the identical bug
+        // class fixed in ProductValidator this round.
 
         foreach ($source->getProductClasses() as $productClass) {
             if ($productClass->getStock() !== null && !is_numeric($productClass->getStock())) {

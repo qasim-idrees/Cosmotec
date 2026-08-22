@@ -26,8 +26,12 @@ class ItemValidator implements ValidatorInterface
 
         $errors = [];
 
-        if (trim($source->getNameEn()) === '') {
-            $errors[] = sprintf('Item id=%d has an empty name_en', $source->getId());
+        // See ProductValidator for the same language-policy fallback
+        // (CLAUDE.md "Language") - only a genuine error when BOTH
+        // languages are empty, since GroupedProductStrategy::resolveName()
+        // can legitimately use the Japanese name.
+        if (trim($source->getNameEn()) === '' && trim($source->getName()) === '') {
+            $errors[] = sprintf('Item id=%d has no usable name in either language (name_en and name both empty)', $source->getId());
         }
 
         $displayStatusId = $source->getDisplayStatusId();

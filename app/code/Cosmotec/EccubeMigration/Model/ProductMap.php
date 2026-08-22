@@ -48,6 +48,7 @@ class ProductMap extends AbstractModel
     public const STATUS_UPDATED = 'updated';
     public const STATUS_SKIPPED = 'skipped';
     public const STATUS_ERROR = 'error';
+    public const STATUS_NEEDS_REVIEW = 'needs_review';
 
     protected function _construct(): void
     {

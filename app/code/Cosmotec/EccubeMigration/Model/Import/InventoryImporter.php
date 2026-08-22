@@ -205,7 +205,7 @@ class InventoryImporter implements ImporterInterface
                 $this->recordHistory(
                     $context,
                     $entry['mapped']->getEccubeProductId(),
-                    $entry['productMap']->getMagentoProductId(),
+                    (int) $entry['productMap']->getMagentoProductId(),
                     SyncHistory::STATUS_ERROR,
                     'Batch save failed: ' . $e->getMessage(),
                     $entry['startTime'],
@@ -253,7 +253,7 @@ class InventoryImporter implements ImporterInterface
         $this->recordHistory(
             $context,
             $mapped->getEccubeProductId(),
-            $productMap->getMagentoProductId(),
+            (int) $productMap->getMagentoProductId(),
             $isUpdate ? SyncHistory::STATUS_UPDATED : SyncHistory::STATUS_IMPORTED,
             null,
             $startTime,

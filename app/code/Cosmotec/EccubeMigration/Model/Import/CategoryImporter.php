@@ -205,6 +205,71 @@ class CategoryImporter implements ImporterInterface
         );
     }
 
+    /**
+     * dtb_category has no del_flg/status column (confirmed against the live
+     * schema) - a row deleted at EC-CUBE source simply disappears, leaving
+     * no trace CategorySync's update_date watermark can ever see. Disabling
+     * (is_active=false) rather than deleting the Magento category mirrors
+     * the non-destructive pattern already used for
+     * RelatedProductImporter::markObsoleteForProduct() /
+     * ConnectionPartImporter::markObsoleteForItem() - the category and its
+     * data are preserved (still restorable, still holds any child
+     * categories/products) but it stops appearing in navigation/search,
+     * matching the effect of EC-CUBE's own display_status_id=2 convention
+     * used elsewhere in this module. Never called from a dry run.
+     *
+     * @param int[] $liveEccubeCategoryIds every category id currently
+     *   present in dtb_category (a full scan - the source table is only
+     *   ~324 rows, cheap to read in full)
+     */
+    public function markObsoleteForMissingSource(array $liveEccubeCategoryIds): int
+    {
+        $liveIds = array_map('intval', $liveEccubeCategoryIds);
+        $obsolete = 0;
+
+        foreach ($this->categoryMapRepository->getAllSuccessful() as $map) {
+            // AbstractModel::getData() returns a raw DB string, not an int -
+            // same recurring bug class documented elsewhere in this module.
+            if (in_array((int) $map->getEccubeCategoryId(), $liveIds, true)) {
+                continue;
+            }
+
+            $magentoCategoryId = $this->toIntOrNull($map->getMagentoCategoryId());
+
+            if ($magentoCategoryId !== null) {
+                try {
+                    $magentoCategory = $this->magentoCategoryRepository->get($magentoCategoryId);
+
+                    if ($magentoCategory->getIsActive()) {
+                        $magentoCategory->setIsActive(false);
+                        $this->magentoCategoryRepository->save($magentoCategory);
+                    }
+                } catch (NoSuchEntityException) {
+                    // Already gone from Magento too - just flag the map row.
+                }
+            }
+
+            $map->setStatus(CategoryMap::STATUS_OBSOLETE);
+            $map->setErrorMessage('Category id no longer exists in dtb_category (source deletion)');
+            $this->categoryMapRepository->save($map);
+
+            $this->logger->info(sprintf(
+                'Category id=%d no longer exists at EC-CUBE source - disabled Magento category id=%s',
+                $map->getEccubeCategoryId(),
+                $magentoCategoryId ?? 'unknown'
+            ));
+
+            $obsolete++;
+        }
+
+        return $obsolete;
+    }
+
+    private function toIntOrNull(mixed $value): ?int
+    {
+        return $value === null || $value === '' ? null : (int) $value;
+    }
+
     private function handleError(
         EccubeCategoryInterface $source,
         ImportContext $context,

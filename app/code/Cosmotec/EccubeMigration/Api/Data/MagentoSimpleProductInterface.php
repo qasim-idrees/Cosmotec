@@ -48,5 +48,16 @@ interface MagentoSimpleProductInterface
      */
     public function isCadUnavailable(): bool;
 
+    /**
+     * True when the EC-CUBE source had a genuinely NULL price and
+     * ProductMapper substituted a 0.00 fallback so Magento's own
+     * required-attribute check on Price would not reject the product.
+     * ProductImporter uses this to mark the resulting map row
+     * ProductMap::STATUS_NEEDS_REVIEW instead of the normal
+     * imported/updated status, so these products surface separately for
+     * manual pricing follow-up rather than blending into the normal count.
+     */
+    public function priceNeedsReview(): bool;
+
     public function getContentHash(): string;
 }

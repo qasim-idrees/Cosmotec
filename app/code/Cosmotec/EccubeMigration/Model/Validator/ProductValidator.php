@@ -30,8 +30,15 @@ class ProductValidator implements ValidatorInterface
 
         $errors = [];
 
-        if (trim($source->getNameEn()) === '') {
-            $errors[] = sprintf('Product id=%d has an empty name_en', $source->getId());
+        // Per project language policy (CLAUDE.md "Language"): English
+        // preferred, Japanese fallback when English is unavailable - so an
+        // empty name_en is only a real error when the Japanese name is ALSO
+        // empty (live-confirmed this never actually happens in this
+        // dataset: 0 products lack both). ProductMapper::resolveName()
+        // implements the actual fallback; this validator must not reject a
+        // product that mapper can legitimately name.
+        if (trim($source->getNameEn()) === '' && trim($source->getName()) === '') {
+            $errors[] = sprintf('Product id=%d has no usable name in either language (name_en and name both empty)', $source->getId());
         }
 
         // product_code is the closest thing to a SKU on dtb_product; it can
@@ -54,11 +61,15 @@ class ProductValidator implements ValidatorInterface
             $errors[] = sprintf('Product id=%d has a negative price (%s)', $source->getId(), $price);
         }
 
-        $stockQuantity = $source->getStockQuantity();
-
-        if ($stockQuantity !== null && $stockQuantity < 0) {
-            $errors[] = sprintf('Product id=%d has a negative stock_quantity (%d)', $source->getId(), $stockQuantity);
-        }
+        // Negative stock_quantity (109 products, real prices/names -
+        // confirmed via live investigation, not a placeholder/draft
+        // pattern like the empty-price group) is a legitimate EC-CUBE
+        // oversold/backorder state, not bad data - Magento has no concept
+        // of negative available stock, so ProductMapper::map() already
+        // clamps it to 0 and marks the product out of stock (was already
+        // correct, just unreachable because this validator rejected the
+        // product before the mapper ever ran). No fabrication: the
+        // product's true current availability (none) is preserved exactly.
 
         $itemId = $source->getItemId();
 

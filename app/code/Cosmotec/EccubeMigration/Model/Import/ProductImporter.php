@@ -127,7 +127,11 @@ class ProductImporter implements ImporterInterface
             return false;
         }
 
-        return in_array($map->getStatus(), [ProductMap::STATUS_IMPORTED, ProductMap::STATUS_UPDATED], true);
+        return in_array(
+            $map->getStatus(),
+            [ProductMap::STATUS_IMPORTED, ProductMap::STATUS_UPDATED, ProductMap::STATUS_NEEDS_REVIEW],
+            true
+        );
     }
 
     private function persist(
@@ -200,13 +204,20 @@ class ProductImporter implements ImporterInterface
         $map->setMagentoProductId($magentoProductId);
         $map->setSku($mapped->getSku());
         $map->setContentHash($mapped->getContentHash());
-        $map->setStatus($isUpdate ? ProductMap::STATUS_UPDATED : ProductMap::STATUS_IMPORTED);
+
+        if ($mapped->priceNeedsReview()) {
+            $map->setStatus(ProductMap::STATUS_NEEDS_REVIEW);
+        } else {
+            $map->setStatus($isUpdate ? ProductMap::STATUS_UPDATED : ProductMap::STATUS_IMPORTED);
+        }
 
         if (!$isUpdate) {
             $map->setRelationLinked(0);
         }
 
-        $map->setErrorMessage(null);
+        $map->setErrorMessage($mapped->priceNeedsReview()
+            ? 'EC-CUBE source price is NULL - imported disabled with price=0.00, needs manual pricing review'
+            : null);
         $map->setLastSyncedAt((new \DateTimeImmutable())->format('Y-m-d H:i:s'));
         $this->productMapRepository->save($map);
 

@@ -27,7 +27,8 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
         private readonly ?string $price,
         private readonly int $stockQuantity,
         private readonly bool $inStock,
-        private readonly bool $cadUnavailable = false
+        private readonly bool $cadUnavailable = false,
+        private readonly bool $priceNeedsReview = false
     ) {
         $this->contentHash = hash('sha256', implode('|', [
             $this->sku,
@@ -95,6 +96,11 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
     public function isCadUnavailable(): bool
     {
         return $this->cadUnavailable;
+    }
+
+    public function priceNeedsReview(): bool
+    {
+        return $this->priceNeedsReview;
     }
 
     public function getContentHash(): string

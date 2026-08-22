@@ -34,6 +34,7 @@ class CategoryMap extends AbstractModel
     public const STATUS_UPDATED = 'updated';
     public const STATUS_SKIPPED = 'skipped';
     public const STATUS_ERROR = 'error';
+    public const STATUS_OBSOLETE = 'obsolete';
 
     protected function _construct(): void
     {

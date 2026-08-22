@@ -32,7 +32,7 @@ use Magento\Framework\Exception\LocalizedException;
  * RelatedProductImporter, which handles the structurally different
  * dtb_related_product (Product -> Product, child-level).
  *
- * NOT YET APPROVED FOR EXECUTION - see BUILD_STATUS.md.
+ * Approved and executed since Round 41 (see BUILD_STATUS.md).
  *
  * Follows the exact same shape as ProductReferenceImporter (true 1:N,
  * every source row independently mapped, exposed to the Grouped Product

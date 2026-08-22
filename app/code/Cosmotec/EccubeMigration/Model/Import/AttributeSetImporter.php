@@ -37,7 +37,7 @@ use Magento\Framework\Exception\LocalizedException;
  * docs/SPECIFICATION_MAGENTO_DATA_MODEL.md ADDENDUM D) and assigns every
  * CREATE-classified specification used anywhere in that category tree.
  *
- * NOT YET APPROVED FOR EXECUTION. Architecture only.
+ * Approved and executed (see BUILD_STATUS.md).
  *
  * Design notes:
  *  - EC-CUBE has no attribute-set concept - this is a Magento design

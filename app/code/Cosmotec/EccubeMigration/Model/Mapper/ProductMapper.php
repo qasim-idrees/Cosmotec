@@ -45,6 +45,22 @@ class ProductMapper implements MapperInterface
         $sku = $this->resolveSku($source);
         $stockQuantity = max(0, $source->getStockQuantity() ?? 0);
 
+        // A genuinely NULL source price (136 products, live-confirmed -
+        // all already display_status_id=2/hidden at EC-CUBE source, some
+        // literal "*****" placeholder draft records) fails Magento's own
+        // required-attribute check on Price if left unset entirely
+        // (ProductImporter only calls setPrice() when getPrice() !== null).
+        // Substituting 0.00 is not fabricating a price - it honestly
+        // represents "no price was ever set", matching the existing
+        // negative-stock-quantity precedent of clamping to a safe default
+        // rather than silently rejecting the product. priceNeedsReview
+        // flags this so the product lands in Magento disabled (per its
+        // existing product_status_id, which is NULL/not 1 for all 136) and
+        // its map row is marked STATUS_NEEDS_REVIEW instead of the normal
+        // imported/updated status, per the explicit business decision.
+        $priceNeedsReview = $source->getPrice() === null;
+        $price = $priceNeedsReview ? '0.00' : $source->getPrice();
+
         return new MagentoSimpleProduct(
             $source->getId(),
             $source->getItemId(),
@@ -53,16 +69,32 @@ class ProductMapper implements MapperInterface
             $source->getProductStatusId() === 1,
             $source->getItemId() !== null ? Visibility::VISIBILITY_NOT_VISIBLE : Visibility::VISIBILITY_BOTH,
             $this->attributeSetProvider->getDefaultAttributeSetId(),
-            $source->getPrice(),
+            $price,
             $stockQuantity,
             $stockQuantity > 0,
-            $source->isCadUnavailable()
+            $source->isCadUnavailable(),
+            $priceNeedsReview
         );
     }
 
+    /**
+     * English preferred; Japanese fallback when English is unavailable -
+     * per project language policy (CLAUDE.md "Language"). The synthetic
+     * "product-{id}" placeholder previously used here for an empty name_en
+     * discarded real source data (0 products in this dataset lack BOTH
+     * languages - a Japanese name_en is always available whenever name_en
+     * is empty, live-confirmed). Never invents a translation - this is the
+     * genuine EC-CUBE name, just in the other language.
+     */
     private function resolveName(ProductInterface $source): string
     {
-        $name = trim($source->getNameEn());
+        $nameEn = trim($source->getNameEn());
+
+        if ($nameEn !== '') {
+            return $nameEn;
+        }
+
+        $name = trim($source->getName());
 
         return $name !== '' ? $name : sprintf('product-%d', $source->getId());
     }

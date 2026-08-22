@@ -38,9 +38,22 @@ class GroupedProductStrategy implements ProductTypeStrategyInterface
         );
     }
 
+    /**
+     * See ProductMapper::resolveName() - same language-policy fallback
+     * (CLAUDE.md "Language": English preferred, Japanese fallback when
+     * English is unavailable), applied here for consistency even though
+     * every current dtb_item row has a populated name_en (100% - live
+     * confirmed) - a fresh EC-CUBE dataset is not guaranteed to.
+     */
     private function resolveName(ItemInterface $item): string
     {
-        $name = trim($item->getNameEn());
+        $nameEn = trim($item->getNameEn());
+
+        if ($nameEn !== '') {
+            return $nameEn;
+        }
+
+        $name = trim($item->getName());
 
         return $name !== '' ? $name : sprintf('item-%d', $item->getId());
     }

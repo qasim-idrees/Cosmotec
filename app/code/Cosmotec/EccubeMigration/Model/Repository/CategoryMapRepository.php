@@ -84,4 +84,15 @@ class CategoryMapRepository implements CategoryMapRepositoryInterface
 
         return $value !== null ? new \DateTimeImmutable($value) : null;
     }
+
+    public function getAllSuccessful(): array
+    {
+        $collection = $this->collectionFactory->create();
+        $collection->addFieldToFilter(
+            'status',
+            ['in' => [CategoryMap::STATUS_IMPORTED, CategoryMap::STATUS_UPDATED]]
+        );
+
+        return array_values($collection->getItems());
+    }
 }

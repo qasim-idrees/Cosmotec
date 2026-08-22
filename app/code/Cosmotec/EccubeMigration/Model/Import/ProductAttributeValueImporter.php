@@ -35,7 +35,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * Product's EAV attributes (Model List / Filter by Model per
  * docs/SPECIFICATION_MAGENTO_DATA_MODEL.md §3-4).
  *
- * NOT YET APPROVED FOR EXECUTION. Architecture only.
+ * Approved and executed (see BUILD_STATUS.md).
  *
  * Iterates via ProductSpecificationValueRepository::getProductIdsWithValues()
  * rather than the full ProductReader, so products with zero specification

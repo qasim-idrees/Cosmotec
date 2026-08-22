@@ -38,7 +38,7 @@ class SyncCategoriesCommand extends Command
 
     protected function configure(): void
     {
-        $this->setDescription('Re-sync EC-CUBE categories modified since the last successful import/sync. Dry-run unless --execute is passed.');
+        $this->setDescription('Re-sync EC-CUBE categories modified since the last successful import/sync, including disabling categories deleted at source. Dry-run unless --execute is passed.');
         $this->addOption(self::OPTION_EXECUTE, null, InputOption::VALUE_NONE, 'Actually write to Magento. Without this flag the command only reports what it would do.');
         $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Explicitly request a dry run (this is also the default).');
         $this->addOption(self::OPTION_RESUME, null, InputOption::VALUE_NONE, 'Present for CLI consistency; sync is always incremental by design.');

@@ -33,8 +33,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * onto the Grouped Product's EAV attributes ("Basic Information" per
  * docs/SPECIFICATION_MAGENTO_DATA_MODEL.md §2).
  *
- * NOT YET APPROVED FOR EXECUTION. Architecture only, per the continuation
- * prompt's explicit read-only-preparation instruction. Requires
+ * Approved and executed (see BUILD_STATUS.md). Requires
  * AttributeImporter and AttributeSetImporter to have actually run first -
  * a specification with no eccube_specification_map row yet (attribute not
  * created) is skipped and retried on the next run, never an error.

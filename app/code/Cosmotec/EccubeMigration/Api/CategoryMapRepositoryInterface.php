@@ -43,4 +43,14 @@ interface CategoryMapRepositoryInterface
      * looked". Null if nothing has ever been imported yet.
      */
     public function getMaxLastSyncedAt(): ?\DateTimeImmutable;
+
+    /**
+     * All rows currently believed to correspond to a live Magento category
+     * (status IMPORTED or UPDATED) - used by CategorySync to detect
+     * categories deleted at the EC-CUBE source, which has no del_flg/status
+     * column of its own and therefore cannot be detected any other way.
+     *
+     * @return CategoryMap[]
+     */
+    public function getAllSuccessful(): array;
 }

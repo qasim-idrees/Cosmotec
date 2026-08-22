@@ -33,7 +33,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * unlike Connection Parts (see ConnectionPartImporter), which must NOT use
  * this same mechanism.
  *
- * NOT YET APPROVED FOR EXECUTION - see BUILD_STATUS.md.
+ * Approved and executed since Round 41 (see BUILD_STATUS.md).
  *
  * Batched per source product: every related link for one product is
  * collected and written in a single ProductRepository::save() call,

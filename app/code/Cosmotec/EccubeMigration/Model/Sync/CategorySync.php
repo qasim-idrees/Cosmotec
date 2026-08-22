@@ -89,6 +89,14 @@ class CategorySync extends CategoryImporter
             }
         }
 
+        if (!$context->isDryRun()) {
+            $obsoleteCount = $this->markObsoleteForMissingSource($this->getAllLiveEccubeCategoryIds());
+
+            if ($obsoleteCount > 0) {
+                $this->logger->info(sprintf('CategorySync run %s: disabled %d categor(y/ies) deleted at EC-CUBE source', $context->getRunId(), $obsoleteCount));
+            }
+        }
+
         $this->logger->info(sprintf(
             'CategorySync run %s complete: imported=%d updated=%d skipped=%d errors=%d',
             $context->getRunId(),
@@ -99,5 +107,40 @@ class CategorySync extends CategoryImporter
         ));
 
         return $result;
+    }
+
+    /**
+     * dtb_category has no del_flg (confirmed against the live schema), so
+     * detecting a source deletion requires a full id scan, not the
+     * update_date watermark used above for ordinary changes. Only ~324
+     * categories total - cheap to read in full every sync run.
+     *
+     * @return int[]
+     */
+    private function getAllLiveEccubeCategoryIds(): array
+    {
+        $ids = [];
+        $offset = 0;
+        $batchSize = 500;
+
+        while (true) {
+            $page = $this->eccubeCategoryRepository->getBatch($offset, $batchSize);
+
+            if ($page === []) {
+                break;
+            }
+
+            foreach ($page as $source) {
+                $ids[] = $source->getId();
+            }
+
+            if (count($page) < $batchSize) {
+                break;
+            }
+
+            $offset += $batchSize;
+        }
+
+        return $ids;
     }
 }

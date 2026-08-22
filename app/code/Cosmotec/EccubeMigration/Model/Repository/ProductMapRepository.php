@@ -72,7 +72,16 @@ class ProductMapRepository implements ProductMapRepositoryInterface
     {
         $collection = $this->collectionFactory->create();
         $collection->addFieldToFilter('eccube_item_id', $eccubeItemId);
-        $collection->addFieldToFilter('status', ['in' => [ProductMap::STATUS_IMPORTED, ProductMap::STATUS_UPDATED]]);
+        // STATUS_NEEDS_REVIEW products are real, successfully-created
+        // Magento products (disabled, price=0.00 pending manual review -
+        // see ProductMapper::map()) that still need their normal
+        // downstream processing (attribute set, relation linking, etc.) -
+        // only their price/enabled-status is intentionally incomplete.
+        $collection->addFieldToFilter('status', ['in' => [
+            ProductMap::STATUS_IMPORTED,
+            ProductMap::STATUS_UPDATED,
+            ProductMap::STATUS_NEEDS_REVIEW,
+        ]]);
         $collection->addFieldToFilter('relation_linked', 0);
 
         return array_values($collection->getItems());
@@ -93,7 +102,16 @@ class ProductMapRepository implements ProductMapRepositoryInterface
     public function getMappedBatch(int $offset, int $limit): array
     {
         $collection = $this->collectionFactory->create();
-        $collection->addFieldToFilter('status', ['in' => [ProductMap::STATUS_IMPORTED, ProductMap::STATUS_UPDATED]]);
+        // STATUS_NEEDS_REVIEW products are real, successfully-created
+        // Magento products (disabled, price=0.00 pending manual review -
+        // see ProductMapper::map()) that still need their normal
+        // downstream processing (attribute set, relation linking, etc.) -
+        // only their price/enabled-status is intentionally incomplete.
+        $collection->addFieldToFilter('status', ['in' => [
+            ProductMap::STATUS_IMPORTED,
+            ProductMap::STATUS_UPDATED,
+            ProductMap::STATUS_NEEDS_REVIEW,
+        ]]);
         $collection->addFieldToFilter('magento_product_id', ['notnull' => true]);
         $collection->setOrder('eccube_product_id', 'ASC');
         $collection->setPageSize(max(1, $limit));
