@@ -15,12 +15,14 @@ use Cosmotec\EccubeMigration\Api\Data\CategoryInterface;
 use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
 use Cosmotec\EccubeMigration\Model\DTO\MagentoCategory;
 use Cosmotec\EccubeMigration\Model\Mapper\Exception\UnresolvedParentException;
+use Cosmotec\EccubeMigration\Model\UrlKey\CategoryUrlKeyResolver;
 
 class CategoryMapper implements MapperInterface
 {
     public function __construct(
         private readonly EccubeConfigProviderInterface $config,
-        private readonly CategoryMapRepositoryInterface $categoryMapRepository
+        private readonly CategoryMapRepositoryInterface $categoryMapRepository,
+        private readonly CategoryUrlKeyResolver $urlKeyResolver
     ) {
     }
 
@@ -45,7 +47,7 @@ class CategoryMapper implements MapperInterface
             true,
             $source->getSortNo(),
             $this->resolveDescription($source),
-            $this->slugify($this->resolveName($source), $source->getId())
+            $this->urlKeyResolver->resolveForCategory($source->getId())
         );
     }
 
@@ -56,11 +58,27 @@ class CategoryMapper implements MapperInterface
         return $name !== '' ? $name : sprintf('category-%d', $source->getId());
     }
 
+    /**
+     * English preferred, Japanese fallback when English is unavailable -
+     * per project language policy (CLAUDE.md "Language"), same pattern
+     * already used for product/item names. A populated English
+     * description is never overwritten by the Japanese one. Returns null
+     * only when both languages are genuinely empty, so the caller can
+     * distinguish "no description" from "description exists, just not in
+     * English" and correctly clear a Magento description when the source
+     * has none (see CategoryImporter::persist()).
+     */
     private function resolveDescription(CategoryInterface $source): ?string
     {
-        return $source->getDescriptionEn() !== null && trim($source->getDescriptionEn()) !== ''
-            ? $source->getDescriptionEn()
-            : null;
+        $descriptionEn = $source->getDescriptionEn();
+
+        if ($descriptionEn !== null && trim($descriptionEn) !== '') {
+            return $descriptionEn;
+        }
+
+        $description = $source->getDescription();
+
+        return $description !== null && trim($description) !== '' ? $description : null;
     }
 
     /**
@@ -87,15 +105,5 @@ class CategoryMapper implements MapperInterface
         }
 
         return (int) $parentMap->getMagentoCategoryId();
-    }
-
-    private function slugify(string $name, int $fallbackId): string
-    {
-        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $name);
-        $ascii = $transliterated !== false ? $transliterated : '';
-        $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '-', $ascii));
-        $slug = trim($slug, '-');
-
-        return $slug !== '' ? $slug : sprintf('category-%d', $fallbackId);
     }
 }

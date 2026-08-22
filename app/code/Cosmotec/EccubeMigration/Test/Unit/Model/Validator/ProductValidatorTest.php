@@ -77,14 +77,17 @@ class ProductValidatorTest extends TestCase
         $this->assertStringContainsString('non-numeric price', $result->getErrorsAsString());
     }
 
-    public function testNegativeStockQuantityFails(): void
+    public function testNegativeStockQuantityIsValid(): void
     {
+        // Negative stock_quantity is a legitimate EC-CUBE oversold/backorder
+        // state, not bad data - ProductMapper::map() clamps it to 0 and
+        // marks the product out of stock, so the validator must not reject
+        // it before the mapper ever runs.
         $product = $this->makeProduct(name: 'T-Shirt', productCode: 'SKU1', price: null, stockQuantity: -1, itemId: null);
 
         $result = $this->validator->validate($product);
 
-        $this->assertFalse($result->isValid());
-        $this->assertStringContainsString('negative stock_quantity', $result->getErrorsAsString());
+        $this->assertTrue($result->isValid());
     }
 
     public function testItemIdReferencingMissingItemFails(): void

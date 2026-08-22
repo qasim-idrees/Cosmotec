@@ -27,12 +27,12 @@ use Cosmotec\EccubeMigration\Model\Reader\MediaReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
 use Cosmotec\EccubeMigration\Model\Validator\MediaValidator;
 use Magento\Catalog\Api\CategoryRepositoryInterface as MagentoCategoryRepositoryInterface;
+use Magento\Catalog\Model\CategoryFactory as MagentoCategoryFactory;
 use Magento\Catalog\Api\Data\ProductAttributeMediaGalleryEntryInterfaceFactory;
 use Magento\Framework\Api\Data\ImageContentInterfaceFactory;
 use Magento\Catalog\Api\ProductRepositoryInterface as MagentoProductRepositoryInterface;
 use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\Exception\LocalizedException;
-use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Filesystem;
 
 /**
@@ -80,6 +80,7 @@ class MediaImporter implements ImporterInterface
         private readonly SyncHistoryRepositoryInterface $syncHistoryRepository,
         private readonly MagentoProductRepositoryInterface $magentoProductRepository,
         private readonly MagentoCategoryRepositoryInterface $magentoCategoryRepository,
+        private readonly MagentoCategoryFactory $magentoCategoryFactory,
         private readonly ProductAttributeMediaGalleryEntryInterfaceFactory $mediaGalleryEntryFactory,
         private readonly ImageContentInterfaceFactory $imageContentFactory,
         private readonly EccubeConfigProviderInterface $config,
@@ -734,16 +735,43 @@ class MediaImporter implements ImporterInterface
         return $fileName;
     }
 
+    /**
+     * The category `image` attribute is Store-view scoped in stock
+     * Magento. Deliberately does NOT use
+     * MagentoCategoryRepositoryInterface here - live-confirmed this round
+     * that CategoryRepository::save() hard-codes
+     * `$storeId = $this->storeManager->getStore()->getId()` (the current
+     * ambient store, resolving to a real store view in CLI context, never
+     * global scope) and completely ignores whatever store scope the
+     * passed-in category object carries - `$category->setStoreId(0)`
+     * before calling repository save() is silently overridden and the
+     * write still lands on the ambient store. This is a genuine
+     * CategoryRepositoryInterface API limitation (see
+     * vendor/magento/module-catalog/Model/CategoryRepository.php::save()),
+     * not something fixable by changing what's set on the category object
+     * beforehand.
+     *
+     * The plain \Magento\Catalog\Model\Category model's own save() (the
+     * legacy AbstractModel path, bypassing the repository entirely) does
+     * not have this limitation - its resource model writes using
+     * $category->getStoreId(), which correctly returns whatever was
+     * explicitly set via setStoreId(). Confirmed live: a direct model
+     * save with setStoreId(0) correctly persisted at store_id=0, where
+     * the repository path did not, even with the identical setStoreId(0)
+     * call on the object.
+     */
     private function attachCategoryImage(int $categoryId, string $mediaRelativePath): void
     {
-        try {
-            $category = $this->magentoCategoryRepository->get($categoryId);
-        } catch (NoSuchEntityException) {
+        $category = $this->magentoCategoryFactory->create();
+        $category->setStoreId(0);
+        $category->load($categoryId);
+
+        if (!$category->getId()) {
             return;
         }
 
         $category->setData('image', $mediaRelativePath);
-        $this->magentoCategoryRepository->save($category);
+        $category->save();
     }
 
     /**

@@ -88,16 +88,24 @@ class CategoryImporter implements ImporterInterface
             }
 
             $existingMap = $this->categoryMapRepository->getByEccubeCategoryId($source->getId());
+            $mapped = $this->mapper->map($source);
 
-            if ($this->isAlreadyDone($existingMap)) {
+            // Gated on BOTH status and content hash - a plain status check
+            // (the previous behavior) meant any category that ever reached
+            // IMPORTED/UPDATED could never be touched again by either
+            // import:categories or sync:categories, no matter what changed
+            // in EC-CUBE source afterward - contradicting CategorySync's
+            // own stated purpose of refreshing fields for records whose
+            // update_date moved. Same fix class as the hash-gated skip
+            // already used correctly elsewhere in this module (e.g.
+            // ItemAttributeValueImporter).
+            if ($this->isAlreadyDone($existingMap) && $existingMap->getContentHash() === $mapped->getContentHash()) {
                 $result->incrementSkipped();
-                $this->logger->info(sprintf('Category id=%d already imported, skipping.', $source->getId()));
-                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoCategoryId() !== null ? (int) $existingMap->getMagentoCategoryId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported', $startTime, $startMemory);
+                $this->logger->info(sprintf('Category id=%d already imported and unchanged, skipping.', $source->getId()));
+                $this->recordHistory($context, $source->getId(), $existingMap?->getMagentoCategoryId() !== null ? (int) $existingMap->getMagentoCategoryId() : null, SyncHistory::STATUS_SKIPPED, 'Already imported and unchanged', $startTime, $startMemory);
 
                 return;
             }
-
-            $mapped = $this->mapper->map($source);
 
             if ($context->isDryRun()) {
                 $result->incrementImported();
@@ -159,11 +167,24 @@ class CategoryImporter implements ImporterInterface
         $magentoCategory->setIncludeInMenu($mapped->isIncludeInMenu());
         $magentoCategory->setPosition($mapped->getPosition());
 
-        if ($mapped->getDescription() !== null) {
-            $magentoCategory->setCustomAttribute('description', $mapped->getDescription());
-        }
+        // Always set (never gated on !== null) so a source description that
+        // becomes empty correctly clears the stale Magento value - setting
+        // only when non-null (the previous behavior) left old content
+        // permanently stuck on update, since the resolved value is only
+        // ever recomputed here. Same "stale value not cleared" bug class as
+        // ItemAttributeValueImporter/ProductAttributeValueImporter, fixed
+        // the same way: setData() directly rather than setCustomAttribute(),
+        // which is what those two importers' clearing logic uses.
+        $magentoCategory->setData('description', $mapped->getDescription());
 
-        if ($mapped->getUrlKey() !== null) {
+        // Only ever set at creation, never on update - matches
+        // ItemImporter/ProductImporter's UrlKeyResolver usage exactly, so
+        // an already-imported category's url_key stays stable across a
+        // later EC-CUBE name edit instead of silently changing the live
+        // storefront URL every time this importer/sync runs (the previous
+        // behavior recomputed and overwrote it unconditionally on every
+        // persist() call, update included).
+        if (!$isUpdate && $mapped->getUrlKey() !== null) {
             $magentoCategory->setCustomAttribute('url_key', $mapped->getUrlKey());
         }
 
