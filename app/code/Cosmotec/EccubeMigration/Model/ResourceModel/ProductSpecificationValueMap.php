@@ -18,4 +18,23 @@ class ProductSpecificationValueMap extends AbstractDb
     {
         $this->_init('eccube_product_specification_value', 'entity_id');
     }
+
+    /**
+     * @param int[] $currentSourceRowIds
+     */
+    public function deleteOrphaned(int $eccubeProductId, int $eccubeSpecificationId, array $currentSourceRowIds): int
+    {
+        $connection = $this->getConnection();
+
+        $conditions = [
+            $connection->quoteInto('eccube_product_id = ?', $eccubeProductId),
+            $connection->quoteInto('eccube_specification_id = ?', $eccubeSpecificationId),
+        ];
+
+        if ($currentSourceRowIds !== []) {
+            $conditions[] = $connection->quoteInto('eccube_product_specification_class_id NOT IN (?)', $currentSourceRowIds);
+        }
+
+        return $connection->delete($this->getMainTable(), implode(' AND ', $conditions));
+    }
 }

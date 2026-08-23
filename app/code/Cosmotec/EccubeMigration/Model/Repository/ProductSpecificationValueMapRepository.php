@@ -67,4 +67,9 @@ class ProductSpecificationValueMapRepository implements ProductSpecificationValu
 
         return array_values($collection->getItems());
     }
+
+    public function deleteOrphaned(int $eccubeProductId, int $eccubeSpecificationId, array $currentSourceRowIds): int
+    {
+        return $this->resource->deleteOrphaned($eccubeProductId, $eccubeSpecificationId, $currentSourceRowIds);
+    }
 }

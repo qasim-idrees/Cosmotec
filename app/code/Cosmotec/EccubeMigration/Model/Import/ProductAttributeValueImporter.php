@@ -222,7 +222,7 @@ class ProductAttributeValueImporter implements ImporterInterface
                 return;
             }
 
-            $this->persistPositional($resolution['positional'], $magentoProductId);
+            $this->persistPositional($resolution['positional'], $eccubeProductId, $magentoProductId, $isUpdate);
 
             $productMap->setSpecificationValueHash($hash);
             $productMap->setSpecificationValuesSyncedAt((new \DateTimeImmutable())->format('Y-m-d H:i:s'));
@@ -391,13 +391,24 @@ class ProductAttributeValueImporter implements ImporterInterface
     }
 
     /**
-     * Lossless positional record - PENDING DECISION, see
-     * MultiValueSpecificationRegistry. Idempotent per source row via the
+     * Lossless positional record. Idempotent per source row via the
      * eccube_product_specification_class_id unique key.
+     *
+     * Insert/update happens first, orphan cleanup after - a crash between
+     * the two only ever leaves extra (already-stale, harmless) rows behind
+     * for the next run to clean up, never fewer rows than the source
+     * actually has.
+     *
+     * Cleanup only runs on an update ($isUpdate - i.e. this product has a
+     * previous successful specification-value sync), never on a brand new
+     * import: a first-time import has nothing to have orphaned yet, and
+     * skipping it there avoids a no-op DELETE per multi-value specification
+     * for every one of the (large majority of) products that don't use any
+     * of them.
      *
      * @param array<int, array{value: ProductSpecificationValueInterface, attributeCode: string, magentoOptionId: int, position: int}> $positional
      */
-    private function persistPositional(array $positional, int $magentoProductId): void
+    private function persistPositional(array $positional, int $eccubeProductId, int $magentoProductId, bool $isUpdate): void
     {
         foreach ($positional as $entry) {
             /** @var ProductSpecificationValueInterface $value */
@@ -416,6 +427,26 @@ class ProductAttributeValueImporter implements ImporterInterface
             $map->setErrorMessage(null);
             $map->setLastSyncedAt((new \DateTimeImmutable())->format('Y-m-d H:i:s'));
             $this->positionalMapRepository->save($map);
+        }
+
+        if (!$isUpdate) {
+            return;
+        }
+
+        $currentIdsBySpecification = [];
+
+        foreach ($positional as $entry) {
+            /** @var ProductSpecificationValueInterface $value */
+            $value = $entry['value'];
+            $currentIdsBySpecification[$value->getSpecificationId()][] = $value->getId();
+        }
+
+        foreach ($this->multiValueRegistry->getIds() as $specificationId) {
+            $this->positionalMapRepository->deleteOrphaned(
+                $eccubeProductId,
+                $specificationId,
+                $currentIdsBySpecification[$specificationId] ?? []
+            );
         }
     }
 
