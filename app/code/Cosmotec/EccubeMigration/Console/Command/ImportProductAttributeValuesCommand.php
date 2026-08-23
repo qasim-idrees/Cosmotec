@@ -32,6 +32,7 @@ class ImportProductAttributeValuesCommand extends Command
     private const OPTION_DRY_RUN = 'dry-run';
     private const OPTION_BATCH_SIZE = 'batch-size';
     private const OPTION_LIMIT = 'limit';
+    private const OPTION_OFFSET = 'offset';
 
     public function __construct(
         private readonly ProductAttributeValueImporter $importer,
@@ -49,6 +50,7 @@ class ImportProductAttributeValuesCommand extends Command
         $this->addOption(self::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, 'Explicitly request a dry run (this is also the default).');
         $this->addOption(self::OPTION_BATCH_SIZE, null, InputOption::VALUE_REQUIRED, 'Override the configured batch size (products-with-values per page).');
         $this->addOption(self::OPTION_LIMIT, null, InputOption::VALUE_REQUIRED, 'Stop after this many products with values (useful for a small real-data test — this table has no natural small scope).');
+        $this->addOption(self::OPTION_OFFSET, null, InputOption::VALUE_REQUIRED, 'Skip this many products with values before starting - combine with a small --limit to reach a specific known EC-CUBE product id deep in the product_id-ascending ordering, without processing every product before it.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -94,7 +96,12 @@ class ImportProductAttributeValuesCommand extends Command
         );
 
         $limitOption = $input->getOption(self::OPTION_LIMIT);
-        $result = $this->importer->importLimited($context, $limitOption !== null ? (int) $limitOption : null);
+        $offsetOption = $input->getOption(self::OPTION_OFFSET);
+        $result = $this->importer->importLimited(
+            $context,
+            $limitOption !== null ? (int) $limitOption : null,
+            $offsetOption !== null ? (int) $offsetOption : 0
+        );
 
         $output->writeln('');
         $output->writeln(sprintf(

@@ -81,12 +81,19 @@ class ProductAttributeValueImporter implements ImporterInterface
      *                        the other importers' --limit (which caps
      *                        source rows), this caps PRODUCTS, since each
      *                        one drives a variable number of value rows.
+     * @param int $startOffset skip this many products-with-values before
+     *                         starting - lets a small --limit reach a
+     *                         specific known product deep in the
+     *                         product_id-ascending ordering (e.g. a
+     *                         real-data smoke test targeting particular
+     *                         EC-CUBE product ids) without processing
+     *                         every product before it.
      */
-    public function importLimited(ImportContext $context, ?int $limit): ImportResult
+    public function importLimited(ImportContext $context, ?int $limit, int $startOffset = 0): ImportResult
     {
         $result = new ImportResult();
         $batchSize = $context->getBatchSize() ?? 100;
-        $offset = 0;
+        $offset = $startOffset;
         $processed = 0;
 
         while (true) {
