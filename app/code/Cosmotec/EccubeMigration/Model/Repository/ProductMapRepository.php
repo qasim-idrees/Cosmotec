@@ -128,8 +128,13 @@ class ProductMapRepository implements ProductMapRepositoryInterface
         $collection->setPageSize(1);
         $collection->setCurPage(1);
 
+        // Same "$items[0] ?? null" safe-empty-collection pattern already
+        // used by MediaMapRepository::get() - a truly empty map table
+        // (a fresh install before any sync has ever run) previously threw
+        // "Undefined array key 0" here, aborting sync:simple-products outright.
         $items = array_values($collection->getItems());
-        $value = $items[0]->getLastSyncedAt() ?? null;
+        $item = $items[0] ?? null;
+        $value = $item?->getLastSyncedAt();
 
         return $value !== null ? new \DateTimeImmutable($value) : null;
     }
