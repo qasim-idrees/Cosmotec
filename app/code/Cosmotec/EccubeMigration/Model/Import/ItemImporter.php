@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\ItemMapFactory;
 use Cosmotec\EccubeMigration\Model\Mapper\ItemMapper;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyCollisionChecker;
 use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ItemValidator;
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
@@ -54,6 +55,7 @@ class ItemImporter implements ImporterInterface
         private readonly CategoryLinkManagementInterface $categoryLinkManagement,
         private readonly StoreManagerInterface $storeManager,
         private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
+        private readonly UrlKeyCollisionChecker $urlKeyCollisionChecker,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -210,17 +212,52 @@ class ItemImporter implements ImporterInterface
         // if the EC-CUBE name changes later, without this module
         // duplicating Magento's own generation/collision logic.
         //
-        // On CREATE only: unlike Category's observer, Product's silently
-        // leaves url_key unset rather than throwing when the name
-        // transliterates to '' - still not a good outcome, so the same
-        // deterministic, EC-CUBE-id-free fallback is applied here too
-        // (0 items in this dataset actually hit this, live-confirmed, but
-        // the guarantee must hold in general). See
-        // UrlKeyFallbackGenerator's own docblock for why it uses neither
-        // the EC-CUBE id nor SKU (this project's synthesized SKUs would
-        // reintroduce an EC-CUBE id for exactly the affected records).
-        if (!$isUpdate && $magentoProduct->formatUrlKey($mapped->getName()) === '') {
-            $magentoProduct->setUrlKey($this->urlKeyFallbackGenerator->generate('item', $mapped->getName()));
+        // On CREATE only, two cases native generation cannot handle by
+        // itself, both resolved with the same UrlKeyFallbackGenerator
+        // (never a new hashing implementation, never the raw EC-CUBE id
+        // exposed in the URL):
+        //  1. The name transliterates to '' (Japanese-only) - Product's
+        //     own observer silently leaves url_key unset rather than
+        //     throwing, still not a good outcome.
+        //  2. The native candidate would collide with an EXISTING
+        //     url_rewrite - live-confirmed this round at real dataset
+        //     scale (35 collision groups, 101 items) - Magento's own
+        //     save throws UrlAlreadyExistsException with no
+        //     auto-resolution, confirmed against both the save-time
+        //     observer and Magento's own core CSV importer. Checked via
+        //     UrlKeyCollisionChecker, which queries Magento's real
+        //     url_rewrite state (UrlFinderInterface, not a raw url_key
+        //     comparison), so a category's hierarchy-prefixed request
+        //     path is correctly never treated as a false-positive
+        //     collision. The fallback input here is "item:{eccubeId}",
+        //     not the name (a hash of the NAME would collide identically
+        //     for two records that already share that name - the whole
+        //     problem being solved), and the fallback itself is also
+        //     checked, so it can never silently collide either.
+        if (!$isUpdate) {
+            $nativeUrlKey = $magentoProduct->formatUrlKey($mapped->getName());
+
+            if ($nativeUrlKey === '' || $this->urlKeyCollisionChecker->wouldCollide($nativeUrlKey)) {
+                $fallbackUrlKey = $this->urlKeyFallbackGenerator->generate('item', 'item:' . $mapped->getEccubeItemId());
+
+                // Astronomically unlikely (id-keyed hash, always a
+                // different input per record) but checked anyway per
+                // explicit instruction, rather than assumed safe. Not
+                // "invented" as a new strategy if it ever does happen -
+                // logged clearly, then left to Magento's own native save
+                // to reject it exactly like any other collision, so it
+                // surfaces as a normal, reviewable STATUS_ERROR map row
+                // instead of a silent wrong URL.
+                if ($this->urlKeyCollisionChecker->wouldCollide($fallbackUrlKey)) {
+                    $this->logger->error(sprintf(
+                        'Item id=%d: even the deterministic fallback url_key "%s" collides with an existing url_rewrite - leaving as-is so the save fails naturally and is recorded for review.',
+                        $mapped->getEccubeItemId(),
+                        $fallbackUrlKey
+                    ));
+                }
+
+                $magentoProduct->setUrlKey($fallbackUrlKey);
+            }
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);

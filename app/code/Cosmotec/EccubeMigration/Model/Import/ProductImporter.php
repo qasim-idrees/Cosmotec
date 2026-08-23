@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\ProductMap;
 use Cosmotec\EccubeMigration\Model\ProductMapFactory;
 use Cosmotec\EccubeMigration\Model\Reader\ProductReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyCollisionChecker;
 use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ProductValidator;
 use Magento\Catalog\Model\Product as MagentoProduct;
@@ -51,6 +52,7 @@ class ProductImporter implements ImporterInterface
         private readonly MagentoProductFactory $magentoProductFactory,
         private readonly StoreManagerInterface $storeManager,
         private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
+        private readonly UrlKeyCollisionChecker $urlKeyCollisionChecker,
         protected readonly ImportLogger $logger
     ) {
     }
@@ -232,12 +234,30 @@ class ProductImporter implements ImporterInterface
         }
         // url_key: never set on update - see ItemImporter::persist() for
         // the full reasoning (Magento's own ProductUrlKeyAutogeneratorObserver
-        // generates it natively). On CREATE only, the same
-        // UrlKeyFallbackGenerator edge-case fallback as ItemImporter -
-        // see there for why (8 real products in this dataset hit this:
-        // the existing "*****"-named needs_review placeholders).
-        if (!$isUpdate && $magentoProduct->formatUrlKey($mapped->getName()) === '') {
-            $magentoProduct->setUrlKey($this->urlKeyFallbackGenerator->generate('product', $mapped->getName()));
+        // generates it natively). On CREATE only, the same two fallback
+        // cases as ItemImporter - see there for the full explanation
+        // (empty transliteration: 8 real products, the "*****"-named
+        // needs_review placeholders; collision: live-confirmed this round
+        // at real dataset scale, 792 collision groups, 1,609 products,
+        // including 360 that collide with an already-imported Item, not
+        // just with each other - Simple Products and Items share the same
+        // Magento entity type and request-path namespace).
+        if (!$isUpdate) {
+            $nativeUrlKey = $magentoProduct->formatUrlKey($mapped->getName());
+
+            if ($nativeUrlKey === '' || $this->urlKeyCollisionChecker->wouldCollide($nativeUrlKey)) {
+                $fallbackUrlKey = $this->urlKeyFallbackGenerator->generate('product', 'product:' . $mapped->getEccubeProductId());
+
+                if ($this->urlKeyCollisionChecker->wouldCollide($fallbackUrlKey)) {
+                    $this->logger->error(sprintf(
+                        'Product id=%d: even the deterministic fallback url_key "%s" collides with an existing url_rewrite - leaving as-is so the save fails naturally and is recorded for review.',
+                        $mapped->getEccubeProductId(),
+                        $fallbackUrlKey
+                    ));
+                }
+
+                $magentoProduct->setUrlKey($fallbackUrlKey);
+            }
         }
 
         $saved = $this->magentoProductRepository->save($magentoProduct);

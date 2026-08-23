@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\Import\ItemImporter;
 use Cosmotec\EccubeMigration\Model\ItemMapFactory;
 use Cosmotec\EccubeMigration\Model\Mapper\ItemMapper;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyCollisionChecker;
 use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ItemValidator;
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
@@ -47,6 +48,7 @@ class ItemSync extends ItemImporter
         CategoryLinkManagementInterface $categoryLinkManagement,
         StoreManagerInterface $storeManager,
         UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
+        UrlKeyCollisionChecker $urlKeyCollisionChecker,
         ImportLogger $logger,
         private readonly EccubeItemRepositoryInterface $eccubeItemRepository
     ) {
@@ -62,6 +64,7 @@ class ItemSync extends ItemImporter
             $categoryLinkManagement,
             $storeManager,
             $urlKeyFallbackGenerator,
+            $urlKeyCollisionChecker,
             $logger
         );
     }

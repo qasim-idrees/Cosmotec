@@ -20,6 +20,7 @@ use Cosmotec\EccubeMigration\Model\Import\ProductImporter;
 use Cosmotec\EccubeMigration\Model\Mapper\ProductMapper;
 use Cosmotec\EccubeMigration\Model\ProductMapFactory;
 use Cosmotec\EccubeMigration\Model\Reader\ProductReader;
+use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyCollisionChecker;
 use Cosmotec\EccubeMigration\Model\UrlKey\UrlKeyFallbackGenerator;
 use Cosmotec\EccubeMigration\Model\Validator\ProductValidator;
 use Magento\Catalog\Api\Data\ProductInterfaceFactory as MagentoProductFactory;
@@ -46,6 +47,7 @@ class ProductSync extends ProductImporter
         MagentoProductFactory $magentoProductFactory,
         StoreManagerInterface $storeManager,
         UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
+        UrlKeyCollisionChecker $urlKeyCollisionChecker,
         ImportLogger $logger,
         private readonly EccubeProductRepositoryInterface $eccubeProductRepository
     ) {
@@ -60,6 +62,7 @@ class ProductSync extends ProductImporter
             $magentoProductFactory,
             $storeManager,
             $urlKeyFallbackGenerator,
+            $urlKeyCollisionChecker,
             $logger
         );
     }

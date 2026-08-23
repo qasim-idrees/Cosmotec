@@ -28,20 +28,28 @@ namespace Cosmotec\EccubeMigration\Model\UrlKey;
  * produces an empty or reserved result. This class does the equivalent
  * for url_key instead of attribute_group_code.
  *
- * Deliberately a pure function of the NAME ONLY - no EC-CUBE id, no SKU,
- * no other source-system data of any kind, unlike both the old removed
- * UrlKeyResolver/CategoryUrlKeyResolver (EC-CUBE id suffix) and a
- * SKU-based fallback considered and rejected for products: this
- * project's synthesized SKUs (ProductMapper::resolveSku(),
- * "ECCUBE-PRODUCT-{id}") would have reintroduced an EC-CUBE id into the
- * URL for exactly the same records this class exists to fix.
+ * Deliberately a pure function of its two string inputs - no SKU, no
+ * other source-system data, and never the raw EC-CUBE id exposed
+ * unhashed in the URL. Two distinct inputs are hashed by different
+ * callers depending on which failure mode is being resolved:
+ *  - CategoryImporter/ItemImporter/ProductImporter pass the entity NAME
+ *    when it transliterates to '' entirely (Japanese-only text).
+ *  - ItemImporter/ProductImporter also pass 'item:{eccubeItemId}' /
+ *    'product:{eccubeProductId}' (never the bare name) when the native,
+ *    name-derived url_key would collide with an existing url_rewrite -
+ *    hashing the name here would collide identically for every record
+ *    that already shares that name, which is the exact problem being
+ *    solved, so the EC-CUBE id is used as the hash input instead while
+ *    staying out of the resulting URL itself.
  *
  * Deliberately has no injected dependencies and does no dataset-wide
  * scanning or collision map building, unlike the old resolvers - actual
- * collision handling is left entirely to Magento's own save-time
- * uniqueness enforcement (UrlAlreadyExistsException for products,
- * CouldNotSaveException for categories - both live-confirmed this
- * session), consistent with "prefer Magento's own mechanism."
+ * collision detection is delegated to UrlKeyCollisionChecker (which
+ * queries Magento's real url_rewrite state), with Magento's own
+ * save-time uniqueness enforcement (UrlAlreadyExistsException for
+ * products, CouldNotSaveException for categories - both live-confirmed
+ * this session) as the final backstop, consistent with "prefer
+ * Magento's own mechanism."
  *
  * Only ever consulted at entity creation (see CategoryImporter/
  * ItemImporter/ProductImporter), never on update, so an already-created
