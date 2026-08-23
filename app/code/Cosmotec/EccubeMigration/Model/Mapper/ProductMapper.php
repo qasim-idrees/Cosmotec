@@ -82,7 +82,14 @@ class ProductMapper implements MapperInterface
             $sku,
             $this->resolveName($source),
             $source->getDisplayStatusId() === 1,
-            $source->getItemId() !== null ? Visibility::VISIBILITY_NOT_VISIBLE : Visibility::VISIBILITY_BOTH,
+            // Deliberate business decision: every Simple Product is
+            // individually browsable/searchable, including grouped-children
+            // (getItemId() !== null) - previously VISIBILITY_NOT_VISIBLE for
+            // those, matching Magento's own Grouped Product convention, but
+            // explicitly overridden here per instruction. Group/Item product
+            // visibility is untouched - see GroupedProductStrategy, always
+            // VISIBILITY_BOTH already, a completely separate code path.
+            Visibility::VISIBILITY_BOTH,
             $this->attributeSetProvider->getDefaultAttributeSetId(),
             $price,
             $stockQuantity,
