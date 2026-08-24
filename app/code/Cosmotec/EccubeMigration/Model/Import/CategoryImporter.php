@@ -152,7 +152,14 @@ class CategoryImporter implements ImporterInterface
             $magentoCategoryId = (int) $existingMap->getMagentoCategoryId();
 
             try {
-                $magentoCategory = $this->magentoCategoryRepository->get($magentoCategoryId);
+                // Explicit store_id=0 (global scope) - same fix already
+                // applied to ItemImporter/ProductImporter::persist(): without
+                // it, both this load and save() below ambiently resolve to
+                // whatever store StoreManager::getStore() returns in CLI
+                // context, live-confirmed here too (the category-name-source
+                // fix's re-import wrote the new name to store_id=1 only,
+                // leaving the store_id=0/global row stale).
+                $magentoCategory = $this->magentoCategoryRepository->get($magentoCategoryId, 0);
             } catch (NoSuchEntityException) {
                 // Mapping pointed at a category that no longer exists in Magento
                 // (e.g. manually deleted). Fall back to creating a new one.
@@ -163,6 +170,14 @@ class CategoryImporter implements ImporterInterface
             $magentoCategory = $this->magentoCategoryFactory->create();
         }
 
+        // Category::setStoreId() (unlike Product) also propagates to the
+        // EAV resource model's own internal _storeId (getResource()->
+        // setStoreId()) - a plain setData('store_id', 0) only updates the
+        // model's data bag, which the resource model's save path does NOT
+        // consult; it falls back to StoreManager::getStore()->getId()
+        // (ambient CLI context) instead, live-confirmed to silently write
+        // every value to store_id=1 rather than global scope.
+        $magentoCategory->setStoreId(0);
         $magentoCategory->setName($mapped->getName());
         $magentoCategory->setParentId($mapped->getMagentoParentId());
         $magentoCategory->setIsActive($mapped->isActive());
@@ -200,7 +215,23 @@ class CategoryImporter implements ImporterInterface
             $magentoCategory->setUrlKey($this->urlKeyFallbackGenerator->generate('category', $mapped->getName()));
         }
 
-        $saved = $this->magentoCategoryRepository->save($magentoCategory);
+        // CategoryRepositoryInterface::save() (unlike ProductRepository)
+        // ignores the store scope set on the model entirely - it hardcodes
+        // $storeId = StoreManager::getStore()->getId() (ambient CLI
+        // context), then internally re-loads a FRESH category instance at
+        // that ambient store and applies the passed-in data onto that,
+        // discarding whatever setStoreId(0) was called on the original
+        // object (live-confirmed: setStoreId(0) alone, going through the
+        // repository, still wrote to store_id=1). The model's own save()
+        // delegates straight to the resource model, which the earlier
+        // setStoreId(0) call already correctly primed via
+        // Category::setStoreId() -> getResource()->setStoreId() - this is
+        // the standard, well-documented workaround for this specific
+        // CategoryRepositoryInterface limitation. Triggers the exact same
+        // save observers/events (catalog_category_save_before/after) since
+        // the repository's save() just calls the same resource save
+        // underneath, with no other side effect in between.
+        $saved = $magentoCategory->save();
         $magentoCategoryId = (int) $saved->getId();
 
         /** @var CategoryMap $map */

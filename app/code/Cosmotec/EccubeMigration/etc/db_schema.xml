@@ -256,6 +256,39 @@
         </index>
     </table>
 
+    <table name="eccube_item_additional_content" resource="default" engine="innodb"
+           comment="Maps EC-CUBE dtb_item_additional_information (item-level, database-driven HTML tabs - Catalog, Assembly method, etc. - 89 distinct tab names, source-confirmed) to a dedicated Magento admin section, separate from EC-CUBE Specification. Deliberately NOT one EAV attribute per tab name (docs: do not create dozens of hardcoded Magento attributes for every tab).">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="eccube_additional_information_id" unsigned="true" nullable="false" comment="dtb_item_additional_information.id - the exact source row, for idempotent re-runs"/>
+        <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="false" comment="dtb_item_additional_information.item_id"/>
+        <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="true" comment="Resolved Magento Grouped Product id"/>
+        <column xsi:type="varchar" name="tab_name_en" nullable="true" length="64" comment="dtb_item_additional_information.name_en - English tab title (may be empty; Japanese fallback applies, never invented)"/>
+        <column xsi:type="varchar" name="tab_name_ja" nullable="true" length="32" comment="dtb_item_additional_information.name - Japanese tab title"/>
+        <column xsi:type="text" name="html_content" nullable="true" comment="dtb_item_additional_information.value, preserved verbatim (HTML, images, links) - never converted to plain text"/>
+        <column xsi:type="int" name="sort_no" nullable="false" default="0" comment="Derived ordering (source has no sort column; source id order is used, same fallback as eccube_product_reference_map)"/>
+        <column xsi:type="varchar" name="content_hash" nullable="true" length="64" comment="Hash of tab_name_en+tab_name_ja+html_content for change detection"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error|obsolete"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Last error"/>
+        <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful sync"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_ITEM_ADDITIONAL_CONTENT_SOURCE_ID">
+            <column name="eccube_additional_information_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_ITEM_ADDITIONAL_CONTENT_ITEM" indexType="btree">
+            <column name="eccube_item_id"/>
+        </index>
+        <index referenceId="ECCUBE_ITEM_ADDITIONAL_CONTENT_PRODUCT" indexType="btree">
+            <column name="magento_product_id"/>
+        </index>
+        <index referenceId="ECCUBE_ITEM_ADDITIONAL_CONTENT_STATUS" indexType="btree">
+            <column name="status"/>
+        </index>
+    </table>
+
     <table name="eccube_attribute_set_map" resource="default" engine="innodb"
            comment="Maps EC-CUBE top-level dtb_category rows to Magento catalog_product Attribute Sets. Magento design decision - EC-CUBE has no attribute-set concept.">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>

@@ -50,7 +50,7 @@ class CategoryMapper implements MapperInterface
 
     private function resolveName(CategoryInterface $source): string
     {
-        $name = trim($source->getCategoryNameEn());
+        $name = trim($source->getShortNameEn());
 
         return $name !== '' ? $name : sprintf('category-%d', $source->getId());
     }

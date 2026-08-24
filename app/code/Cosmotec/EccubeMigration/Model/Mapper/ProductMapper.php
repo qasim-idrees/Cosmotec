@@ -95,7 +95,10 @@ class ProductMapper implements MapperInterface
             $stockQuantity,
             $stockQuantity > 0,
             $source->isCadUnavailable(),
-            $priceNeedsReview
+            $priceNeedsReview,
+            $source->getModel() !== '' ? $source->getModel() : null,
+            $source->getMakerPartNumber(),
+            $source->getMinimumSalesQuantity()
         );
     }
 

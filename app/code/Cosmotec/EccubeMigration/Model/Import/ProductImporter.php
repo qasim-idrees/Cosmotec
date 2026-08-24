@@ -211,6 +211,14 @@ class ProductImporter implements ImporterInterface
         // whole product import.
         $magentoProduct->setCustomAttribute('cad_unavailable', $mapped->isCadUnavailable() ? 1 : 0);
 
+        // dtb_product.model / maker_part_number -> plain text EAV
+        // attributes (see Setup\Patch\Data\CreateProductInfoAttributes).
+        // Same setCustomAttribute skip-if-missing pattern as
+        // cad_unavailable above. Never null-coalesced to '' - an absent
+        // value should clear the attribute, not write an empty string.
+        $magentoProduct->setCustomAttribute('eccube_product_model', $mapped->getModel());
+        $magentoProduct->setCustomAttribute('eccube_product_maker_part_number', $mapped->getMakerPartNumber());
+
         if ($mapped->getPrice() !== null) {
             $magentoProduct->setPrice((float) $mapped->getPrice());
         }
@@ -218,10 +226,16 @@ class ProductImporter implements ImporterInterface
         // Baseline legacy stock data so the product is immediately
         // salable/visible; Milestone 7 (Inventory) reconciles this against
         // dtb_product_class variant stock via proper MSI source items.
+        // min_sale_qty: dtb_product.minimum_sales_quantity -> Magento's
+        // native "Minimum Qty Allowed in Shopping Cart" (52% populated,
+        // source-confirmed) - 0 means "no minimum", matching EC-CUBE's own
+        // empty-value semantics.
         $magentoProduct->setStockData([
             'qty' => $mapped->getStockQuantity(),
             'is_in_stock' => $mapped->isInStock(),
             'manage_stock' => 1,
+            'min_sale_qty' => $mapped->getMinimumSalesQuantity() ?? 0,
+            'use_config_min_sale_qty' => $mapped->getMinimumSalesQuantity() === null ? 1 : 0,
         ]);
 
         if (!$isUpdate) {

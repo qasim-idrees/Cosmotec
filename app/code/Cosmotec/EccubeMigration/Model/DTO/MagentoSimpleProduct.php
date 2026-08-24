@@ -28,7 +28,10 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
         private readonly int $stockQuantity,
         private readonly bool $inStock,
         private readonly bool $cadUnavailable = false,
-        private readonly bool $priceNeedsReview = false
+        private readonly bool $priceNeedsReview = false,
+        private readonly ?string $model = null,
+        private readonly ?string $makerPartNumber = null,
+        private readonly ?int $minimumSalesQuantity = null
     ) {
         // attributeSetId is deliberately excluded: ProductMapper always
         // computes Magento's Default set here (DefaultAttributeSetProvider)
@@ -51,6 +54,9 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
             $this->stockQuantity,
             $this->inStock ? '1' : '0',
             $this->cadUnavailable ? '1' : '0',
+            $this->model ?? '',
+            $this->makerPartNumber ?? '',
+            $this->minimumSalesQuantity ?? '',
         ]));
     }
 
@@ -112,6 +118,21 @@ final class MagentoSimpleProduct implements MagentoSimpleProductInterface
     public function priceNeedsReview(): bool
     {
         return $this->priceNeedsReview;
+    }
+
+    public function getModel(): ?string
+    {
+        return $this->model;
+    }
+
+    public function getMakerPartNumber(): ?string
+    {
+        return $this->makerPartNumber;
+    }
+
+    public function getMinimumSalesQuantity(): ?int
+    {
+        return $this->minimumSalesQuantity;
     }
 
     public function getContentHash(): string

@@ -1,0 +1,36 @@
+<?php
+/** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Product\ConnectionParts $block */
+$parts = $block->getConnectionParts();
+?>
+<div class="admin__fieldset-wrapper-content cosmotec-connection-parts">
+    <?php if ($parts === []): ?>
+        <p><?= $block->escapeHtml(__('No EC-CUBE connection parts for this product.')) ?></p>
+    <?php else: ?>
+        <table class="data-table admin__table-secondary" style="width: 100%; max-width: 900px;">
+            <thead>
+                <tr class="headings">
+                    <th><?= $block->escapeHtml(__('Thumbnail')) ?></th>
+                    <th><?= $block->escapeHtml(__('SKU')) ?></th>
+                    <th><?= $block->escapeHtml(__('Name')) ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($parts as $part): ?>
+                    <tr>
+                        <td>
+                            <?php if ($part['thumbnail_url']): ?>
+                                <img src="<?= $block->escapeUrl($part['thumbnail_url']) ?>" alt="" style="max-width: 50px; max-height: 50px;"/>
+                            <?php endif; ?>
+                        </td>
+                        <td><?= $block->escapeHtml($part['sku']) ?></td>
+                        <td>
+                            <a href="<?= $block->escapeUrl($part['edit_url']) ?>" target="_blank">
+                                <?= $block->escapeHtml($part['name']) ?>
+                            </a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>

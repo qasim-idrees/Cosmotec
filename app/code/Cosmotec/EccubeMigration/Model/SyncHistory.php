@@ -47,6 +47,7 @@ class SyncHistory extends AbstractModel
     public const ENTITY_TYPE_ATTRIBUTE_SET = 'attribute_set';
     public const ENTITY_TYPE_RELATED_PRODUCT = 'related_product';
     public const ENTITY_TYPE_COUPLING_PRODUCT = 'coupling_product';
+    public const ENTITY_TYPE_ITEM_ADDITIONAL_CONTENT = 'item_additional_content';
 
     public const OPERATION_IMPORT = 'import';
     public const OPERATION_SYNC = 'sync';

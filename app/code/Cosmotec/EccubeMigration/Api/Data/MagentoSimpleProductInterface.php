@@ -59,5 +59,28 @@ interface MagentoSimpleProductInterface
      */
     public function priceNeedsReview(): bool;
 
+    /**
+     * dtb_product.model - migrated to the eccube_product_model attribute
+     * (see Setup\Patch\Data\CreateProductInfoAttributes). Deliberately
+     * never null in practice (100% populated, source-confirmed), but
+     * typed nullable to tolerate a genuinely empty source value without
+     * a special case.
+     */
+    public function getModel(): ?string;
+
+    /**
+     * dtb_product.maker_part_number - migrated to the
+     * eccube_product_maker_part_number attribute (2.7% populated,
+     * source-confirmed - most products simply have none).
+     */
+    public function getMakerPartNumber(): ?string;
+
+    /**
+     * dtb_product.minimum_sales_quantity - migrated to Magento's native
+     * "Minimum Qty Allowed in Shopping Cart" (min_sale_qty stock field),
+     * not a custom attribute (52% populated, source-confirmed).
+     */
+    public function getMinimumSalesQuantity(): ?int;
+
     public function getContentHash(): string;
 }

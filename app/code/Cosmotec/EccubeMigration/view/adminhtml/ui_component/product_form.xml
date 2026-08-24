@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <htmlContent name="cosmotec_eccube_additional_content" sortOrder="95">
+        <argument name="data" xsi:type="array">
+            <item name="wrapper" xsi:type="array">
+                <item name="label" xsi:type="string" translate="true">EC-CUBE Additional Content</item>
+                <item name="collapsible" xsi:type="boolean">true</item>
+                <item name="opened" xsi:type="boolean">false</item>
+            </item>
+        </argument>
+        <settings>
+            <wrapper>
+                <canShow>true</canShow>
+                <componentType>fieldset</componentType>
+            </wrapper>
+        </settings>
+        <block name="cosmotec_eccube_additional_content_block" class="Cosmotec\EccubeMigration\Block\Adminhtml\Product\AdditionalContent" template="Cosmotec_EccubeMigration::product/additional_content.phtml"/>
+    </htmlContent>
+    <htmlContent name="cosmotec_eccube_connection_parts" sortOrder="96">
+        <argument name="data" xsi:type="array">
+            <item name="wrapper" xsi:type="array">
+                <item name="label" xsi:type="string" translate="true">EC-CUBE Connection Parts</item>
+                <item name="collapsible" xsi:type="boolean">true</item>
+                <item name="opened" xsi:type="boolean">false</item>
+            </item>
+        </argument>
+        <settings>
+            <wrapper>
+                <canShow>true</canShow>
+                <componentType>fieldset</componentType>
+            </wrapper>
+        </settings>
+        <block name="cosmotec_eccube_connection_parts_block" class="Cosmotec\EccubeMigration\Block\Adminhtml\Product\ConnectionParts" template="Cosmotec_EccubeMigration::product/connection_parts.phtml"/>
+    </htmlContent>
+</form>

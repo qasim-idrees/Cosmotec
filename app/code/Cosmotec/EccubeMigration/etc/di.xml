@@ -44,6 +44,12 @@
                 type="Cosmotec\EccubeMigration\Model\Repository\ProductReferenceRepository"/>
     <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceMapRepositoryInterface"
                 type="Cosmotec\EccubeMigration\Model\Repository\ProductReferenceMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemAdditionalContentRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ItemAdditionalContentRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemAdditionalContentMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\ItemAdditionalContentMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\ItemAdditionalContentProviderInterface"
+                type="Cosmotec\EccubeMigration\Model\Product\ItemAdditionalContentProvider"/>
     <preference for="Cosmotec\EccubeMigration\Api\MediaRepositoryInterface"
                 type="Cosmotec\EccubeMigration\Model\Repository\MediaRepository"/>
     <preference for="Cosmotec\EccubeMigration\Api\SpecificationMapRepositoryInterface"
@@ -165,6 +171,9 @@
         <plugin name="cosmotec_eccube_connection_parts"
                 type="Cosmotec\EccubeMigration\Plugin\AddConnectionPartsToProduct"
                 sortOrder="11"/>
+        <plugin name="cosmotec_eccube_additional_content"
+                type="Cosmotec\EccubeMigration\Plugin\AddAdditionalContentToProduct"
+                sortOrder="12"/>
     </type>
 
     <preference for="Cosmotec\EccubeMigration\Api\CouplingProductProviderInterface"
@@ -211,6 +220,7 @@
                 <item name="cosmotecEccubeDiagnoseProduct" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseProductCommand</item>
                 <item name="cosmotecEccubeDiagnoseGallery" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseGalleryCommand</item>
                 <item name="cosmotecEccubeImportProductReferences" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductReferencesCommand</item>
+                <item name="cosmotecEccubeImportAdditionalContent" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportItemAdditionalContentCommand</item>
             </argument>
         </arguments>
     </type>

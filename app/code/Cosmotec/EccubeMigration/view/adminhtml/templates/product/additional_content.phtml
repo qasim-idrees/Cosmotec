@@ -1,0 +1,18 @@
+<?php
+/** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Product\AdditionalContent $block */
+$tabs = $block->getTabs();
+?>
+<div class="admin__fieldset-wrapper-content cosmotec-additional-content">
+    <?php if ($tabs === []): ?>
+        <p><?= $block->escapeHtml(__('No EC-CUBE additional-content tabs for this product.')) ?></p>
+    <?php else: ?>
+        <?php foreach ($tabs as $tab): ?>
+            <fieldset class="admin__fieldset cosmotec-additional-content-tab" style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
+                <legend class="admin__legend"><span><?= $block->escapeHtml($block->getTabTitle($tab)) ?></span></legend>
+                <div class="cosmotec-additional-content-body" style="padding: 10px; max-width: 900px; overflow-x: auto;">
+                    <?= /* @noEscape */ $tab['html_content'] ?? '' ?>
+                </div>
+            </fieldset>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</div>
