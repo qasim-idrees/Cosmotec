@@ -1,18 +1,257 @@
 <?php
 /** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Product\AdditionalContent $block */
 $tabs = $block->getTabs();
+$productId = $block->getProductId();
+$saveUrl = $block->getSaveUrl();
+$deleteUrl = $block->getDeleteUrl();
+$blockId = $block->getNameInLayout();
+$wysiwygConfigJson = $block->getWysiwygConfigJson();
 ?>
-<div class="admin__fieldset-wrapper-content cosmotec-additional-content">
-    <?php if ($tabs === []): ?>
-        <p><?= $block->escapeHtml(__('No EC-CUBE additional-content tabs for this product.')) ?></p>
-    <?php else: ?>
-        <?php foreach ($tabs as $tab): ?>
-            <fieldset class="admin__fieldset cosmotec-additional-content-tab" style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-                <legend class="admin__legend"><span><?= $block->escapeHtml($block->getTabTitle($tab)) ?></span></legend>
-                <div class="cosmotec-additional-content-body" style="padding: 10px; max-width: 900px; overflow-x: auto;">
-                    <?= /* @noEscape */ $tab['html_content'] ?? '' ?>
+<div class="admin__fieldset-wrapper-content cosmotec-additional-content" id="<?= $block->escapeHtmlAttr($blockId) ?>">
+    <div class="cosmotec-tabs-toolbar" style="margin-bottom: 15px;">
+        <button type="button" class="action-default scalable" id="cosmotec-tab-add-btn">
+            <span><?= $block->escapeHtml(__('Add Tab')) ?></span>
+        </button>
+    </div>
+
+    <table class="data-grid" style="width:100%; border-collapse:collapse;" id="cosmotec-tabs-grid">
+        <thead>
+            <tr class="data-grid-tr">
+                <th class="data-grid-th"><?= $block->escapeHtml(__('Tab Title')) ?></th>
+                <th class="data-grid-th"><?= $block->escapeHtml(__('Content')) ?></th>
+                <th class="data-grid-th"><?= $block->escapeHtml(__('Position')) ?></th>
+                <th class="data-grid-th"><?= $block->escapeHtml(__('Source')) ?></th>
+                <th class="data-grid-th"><?= $block->escapeHtml(__('Actions')) ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if ($tabs === []): ?>
+                <tr class="cosmotec-tabs-empty-row">
+                    <td colspan="5"><?= $block->escapeHtml(__('No EC-CUBE additional-content tabs for this product.')) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php foreach ($tabs as $tab): ?>
+                <tr class="data-grid-tr cosmotec-additional-content-tab"
+                    data-entity-id="<?= (int) $tab['entity_id'] ?>"
+                    data-tab-title="<?= $block->escapeHtmlAttr($block->getTabTitle($tab)) ?>"
+                    data-sort-no="<?= (int) $tab['sort_no'] ?>"
+                    data-content="<?= $block->escapeHtmlAttr($tab['html_content'] ?? '') ?>">
+                    <td class="data-grid-td"><?= $block->escapeHtml($block->getTabTitle($tab)) ?></td>
+                    <td class="data-grid-td" style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <?= $block->escapeHtml(strip_tags((string) ($tab['html_content'] ?? ''))) ?>
+                    </td>
+                    <td class="data-grid-td"><?= (int) $tab['sort_no'] ?></td>
+                    <td class="data-grid-td">
+                        <?= $block->isEccubeImported($tab) ? $block->escapeHtml(__('EC-CUBE')) : $block->escapeHtml(__('Admin')) ?>
+                    </td>
+                    <td class="data-grid-td">
+                        <a href="#" class="cosmotec-tab-edit-btn"><?= $block->escapeHtml(__('Edit')) ?></a>
+                        &nbsp;|&nbsp;
+                        <a href="#" class="cosmotec-tab-delete-btn"><?= $block->escapeHtml(__('Delete')) ?></a>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+
+    <div id="cosmotec-tab-modal" style="display:none;">
+        <form id="cosmotec-tab-form">
+            <input type="hidden" name="entity_id" id="cosmotec-tab-entity-id" value="0"/>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Tab Title')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="text" id="cosmotec-tab-title" name="tab_title" class="admin__control-text" style="width:100%;"/>
                 </div>
-            </fieldset>
-        <?php endforeach; ?>
-    <?php endif; ?>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Position')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="number" id="cosmotec-tab-sort" name="sort_no" class="admin__control-text" value="0"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Tab Content')) ?></span></label>
+                <div class="admin__field-control">
+                    <textarea id="cosmotec-tab-content" name="tab_content" class="admin__control-textarea" rows="10" style="width:100%;"></textarea>
+                </div>
+            </div>
+        </form>
+    </div>
 </div>
+
+<script>
+require([
+    'jquery',
+    'Magento_Ui/js/modal/modal',
+    'mage/adminhtml/wysiwyg/tiny_mce/setup',
+    'mage/translate',
+    'domReady!'
+], function ($, modal, wysiwygSetupClass) {
+    'use strict';
+
+    var config = {
+            productId: <?= (int) $productId ?>,
+            saveUrl: '<?= /* @noEscape */ $saveUrl ?>',
+            deleteUrl: '<?= /* @noEscape */ $deleteUrl ?>',
+            wysiwygConfig: <?= /* @noEscape */ $wysiwygConfigJson ?>
+        },
+        $root = $('#<?= /* @noEscape */ $blockId ?>'),
+        $modalEl = $root.find('#cosmotec-tab-modal'),
+        wysiwygEditor = null;
+
+    if ($root.data('cosmotecTabsInitialized')) {
+        return;
+    }
+    $root.data('cosmotecTabsInitialized', true);
+
+    $modalEl.modal({
+        title: $.mage.__('EC-CUBE Tab'),
+        type: 'popup',
+        modalClass: 'cosmotec-tab-modal',
+        buttons: [{
+            text: $.mage.__('Cancel'),
+            class: 'action-secondary',
+            click: function () {
+                this.closeModal();
+            }
+        }, {
+            text: $.mage.__('Save Tab'),
+            class: 'action-primary',
+            click: function () {
+                submitTab();
+            }
+        }]
+    });
+
+    function formKey() {
+        return window.FORM_KEY || $('input[name="form_key"]').first().val();
+    }
+
+    /**
+     * The Magento modal widget relocates $modalEl's DOM node (typically to
+     * <body>) once initialized, so field lookups MUST be scoped to
+     * $modalEl (whose own subtree moves with it), never to $root (which
+     * no longer contains the modal's children after that move) - looking
+     * up via $root here was the root cause of both "Tab title is
+     * required" despite a visibly filled field, and a new tab silently
+     * reusing the previous entity_id (the hidden field could be read but
+     * never actually re-written to 0), live-confirmed this round.
+     */
+    function getEditorContent() {
+        if (wysiwygEditor && wysiwygEditor.wysiwygInstance && typeof wysiwygEditor.wysiwygInstance.getContent === 'function') {
+            return wysiwygEditor.wysiwygInstance.getContent();
+        }
+
+        return $modalEl.find('#cosmotec-tab-content').val();
+    }
+
+    function openModal(entityId, title, sortNo, content) {
+        $modalEl.find('#cosmotec-tab-entity-id').val(entityId || 0);
+        $modalEl.find('#cosmotec-tab-title').val(title || '');
+        $modalEl.find('#cosmotec-tab-sort').val(sortNo || 0);
+
+        if (wysiwygEditor && wysiwygEditor.wysiwygInstance && typeof wysiwygEditor.wysiwygInstance.setContent === 'function') {
+            // Editor already live from a previous open - update its
+            // current content directly.
+            wysiwygEditor.wysiwygInstance.setContent(content || '');
+        } else {
+            // First open: seed the plain textarea with the content BEFORE
+            // TinyMCE initializes - 'exact' mode reads the textarea's
+            // current value as its starting content synchronously as
+            // part of its own setup, which avoids any race against
+            // TinyMCE's own (partly asynchronous) iframe setup that a
+            // setContent() call issued right after new wysiwygSetupClass()
+            // would risk.
+            $modalEl.find('#cosmotec-tab-content').val(content || '');
+        }
+
+        $modalEl.modal('openModal');
+
+        if (!wysiwygEditor) {
+            wysiwygEditor = new wysiwygSetupClass('cosmotec-tab-content', config.wysiwygConfig);
+            wysiwygEditor.setup('exact');
+        }
+    }
+
+    function submitTab() {
+        var data = {
+            form_key: formKey(),
+            product_id: config.productId,
+            entity_id: $modalEl.find('#cosmotec-tab-entity-id').val(),
+            tab_title: $modalEl.find('#cosmotec-tab-title').val(),
+            sort_no: $modalEl.find('#cosmotec-tab-sort').val(),
+            tab_content: getEditorContent()
+        };
+
+        if (!data.tab_title) {
+            alert($.mage.__('Tab title is required.'));
+
+            return;
+        }
+
+        $.ajax({
+            url: config.saveUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: data,
+            showLoader: true
+        }).done(function (response) {
+            if (response.success) {
+                window.location.reload();
+            } else {
+                alert(response.message || $.mage.__('Could not save tab.'));
+            }
+        }).fail(function () {
+            alert($.mage.__('Could not save tab.'));
+        });
+    }
+
+    $root.on('click', '#cosmotec-tab-add-btn', function (e) {
+        e.preventDefault();
+        openModal(0, '', 0, '');
+    });
+
+    $root.on('click', '.cosmotec-tab-edit-btn', function (e) {
+        e.preventDefault();
+
+        var $row = $(this).closest('.cosmotec-additional-content-tab');
+
+        openModal(
+            $row.data('entity-id'),
+            $row.data('tab-title'),
+            $row.data('sort-no'),
+            $row.data('content')
+        );
+    });
+
+    $root.on('click', '.cosmotec-tab-delete-btn', function (e) {
+        e.preventDefault();
+
+        var $row = $(this).closest('.cosmotec-additional-content-tab'),
+            entityId = $row.data('entity-id');
+
+        if (!window.confirm($.mage.__('Remove this tab? This cannot be undone.'))) {
+            return;
+        }
+
+        $.ajax({
+            url: config.deleteUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                form_key: formKey(),
+                entity_id: entityId
+            },
+            showLoader: true
+        }).done(function (response) {
+            if (response.success) {
+                window.location.reload();
+            } else {
+                alert(response.message || $.mage.__('Could not delete tab.'));
+            }
+        }).fail(function () {
+            alert($.mage.__('Could not delete tab.'));
+        });
+    });
+});
+</script>

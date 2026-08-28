@@ -12,7 +12,6 @@ namespace Cosmotec\EccubeMigration\Model\Import;
 
 use Cosmotec\EccubeMigration\Api\CategoryMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\Data\MediaFileInterface;
-use Cosmotec\EccubeMigration\Api\EccubeConfigProviderInterface;
 use Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\MediaMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\MediaRepositoryInterface;
@@ -21,6 +20,8 @@ use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\Diagnostics\ExceptionFormatter;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
 use Cosmotec\EccubeMigration\Model\Media\MediaRelationType;
+use Cosmotec\EccubeMigration\Model\Media\MediaSourceResolution;
+use Cosmotec\EccubeMigration\Model\Media\RemoteMediaResolver;
 use Cosmotec\EccubeMigration\Model\MediaMap;
 use Cosmotec\EccubeMigration\Model\MediaMapFactory;
 use Cosmotec\EccubeMigration\Model\Reader\MediaReader;
@@ -83,10 +84,11 @@ class MediaImporter implements ImporterInterface
         private readonly MagentoCategoryFactory $magentoCategoryFactory,
         private readonly ProductAttributeMediaGalleryEntryInterfaceFactory $mediaGalleryEntryFactory,
         private readonly ImageContentInterfaceFactory $imageContentFactory,
-        private readonly EccubeConfigProviderInterface $config,
         private readonly Filesystem $filesystem,
         private readonly ExceptionFormatter $exceptionFormatter,
-        private readonly ImportLogger $logger
+        private readonly \Cosmotec\EccubeMigration\Model\Media\DocumentUploader $documentUploader,
+        private readonly ImportLogger $logger,
+        private readonly RemoteMediaResolver $remoteMediaResolver
     ) {
     }
 
@@ -197,22 +199,49 @@ class MediaImporter implements ImporterInterface
         // Declared before the try so the catch block can always reference
         // it, even if resolution itself is what failed.
         $target = null;
+        $resolution = null;
 
         try {
-            $validation = $this->validator->validate($file);
+            // Resolution order: local filesystem, then (only if enabled
+            // and configured) EC-CUBE's remote S3/CloudFront storage, then
+            // genuinely not found. See RemoteMediaResolver - local-only
+            // behavior is completely unchanged when remote fallback is
+            // off (the default).
+            $resolution = $this->remoteMediaResolver->resolve($file);
+
+            if (!$resolution->isFound()) {
+                $message = (string) $resolution->getErrorMessage();
+                // A genuinely missing/unreadable source file (local AND
+                // remote) is a data condition needing human follow-up, not
+                // a code failure. A remote check/download that could not
+                // even be completed (REMOTE_FETCH_FAILED) is distinct from
+                // a confirmed absence - both still land in needs_review
+                // (matching the existing SOURCE_FILE_NOT_FOUND /
+                // SOURCE_FILE_NOT_READABLE precedent of one review bucket
+                // for several distinguishable messages) but must never be
+                // silently treated as a code error.
+                $status = str_contains($message, 'SOURCE_FILE_NOT_FOUND')
+                    || str_contains($message, 'SOURCE_FILE_NOT_READABLE')
+                    || str_contains($message, 'REMOTE_FETCH_FAILED')
+                        ? MediaMap::STATUS_NEEDS_REVIEW
+                        : MediaMap::STATUS_ERROR;
+
+                $this->recordFailure($file, $context, $result, $message, $status, $startTime, $startMemory, true, MediaMap::SOURCE_TYPE_NOT_FOUND);
+
+                return;
+            }
+
+            $resolvedPath = (string) $resolution->getAbsolutePath();
+            $validation = $this->validator->validate($file, $resolvedPath);
 
             if (!$validation->isValid()) {
                 $message = $validation->getErrorsAsString();
-                // A genuinely missing/unreadable source file is a data
-                // condition needing human follow-up, not a code failure -
-                // classify it distinctly so it can be reported separately
-                // and does not hide real errors. Processing continues.
                 $status = str_contains($message, 'SOURCE_FILE_NOT_FOUND')
                     || str_contains($message, 'SOURCE_FILE_NOT_READABLE')
                         ? MediaMap::STATUS_NEEDS_REVIEW
                         : MediaMap::STATUS_ERROR;
 
-                $this->recordFailure($file, $context, $result, $message, $status, $startTime, $startMemory);
+                $this->recordFailure($file, $context, $result, $message, $status, $startTime, $startMemory, true, $resolution->getSourceType());
 
                 return;
             }
@@ -231,14 +260,15 @@ class MediaImporter implements ImporterInterface
                     MediaMap::STATUS_PENDING,
                     $startTime,
                     $startMemory,
-                    false
+                    false,
+                    $resolution->getSourceType()
                 );
 
                 return;
             }
 
             $existing = $this->mediaMapRepository->get($file->getRelationType(), $file->getOwnerId(), $file->getUploadFileId());
-            $hash = $this->computeHash($file);
+            $hash = $this->computeHash($resolvedPath, $file, $resolution->getSourceType() === MediaMap::SOURCE_TYPE_REMOTE);
             $willSkip = $existing !== null
                 && $existing->getContentHash() === $hash
                 && in_array($existing->getStatus(), [MediaMap::STATUS_IMPORTED, MediaMap::STATUS_UPDATED], true);
@@ -266,18 +296,19 @@ class MediaImporter implements ImporterInterface
             if ($context->isDryRun()) {
                 $result->incrementImported();
                 $this->logger->info(sprintf(
-                    '[DRY RUN] %s: would attach %s to %s %d as %s',
+                    '[DRY RUN] %s: would attach %s to %s %d as %s (source=%s)',
                     $file->getRelationType()->value,
                     $file->getFileName(),
                     $file->getRelationType()->magentoEntityType(),
                     $target,
-                    $file->getRelationType()->magentoRole(true) ?? 'gallery'
+                    $file->getRelationType()->magentoRole(true) ?? 'gallery',
+                    $resolution->getSourceType()
                 ));
 
                 return;
             }
 
-            $this->persist($file, $target, $existing, $hash, $context, $result, $startTime, $startMemory);
+            $this->persist($file, $resolvedPath, $target, $existing, $hash, $resolution->getSourceType(), $context, $result, $startTime, $startMemory);
         } catch (LocalizedException | \Throwable $e) {
             // Full chain, not just the outer message: Magento's top-level
             // text ("The product can't be saved.") rarely names the cause.
@@ -292,7 +323,14 @@ class MediaImporter implements ImporterInterface
                 'source_file' => $file->getFileName(),
             ]);
 
-            $this->recordFailure($file, $context, $result, $diagnostic, MediaMap::STATUS_ERROR, $startTime, $startMemory);
+            $this->recordFailure($file, $context, $result, $diagnostic, MediaMap::STATUS_ERROR, $startTime, $startMemory, true, $resolution?->getSourceType());
+        } finally {
+            // Only ever deletes a temp download this run created (a
+            // no-op for LOCAL/NOT_FOUND resolutions) - never touches
+            // EC-CUBE source files or Magento media.
+            if ($resolution !== null) {
+                $this->remoteMediaResolver->cleanup($resolution);
+            }
         }
     }
 
@@ -347,9 +385,11 @@ class MediaImporter implements ImporterInterface
      */
     private function persist(
         MediaFileInterface $file,
+        string $absoluteSourcePath,
         int $magentoEntityId,
         ?MediaMap $existing,
         string $hash,
+        string $sourceType,
         ImportContext $context,
         ImportResult $result,
         float $startTime,
@@ -382,14 +422,49 @@ class MediaImporter implements ImporterInterface
         // Magento's gallery API is image-only and would reject or mislabel
         // them.
         if ($relationType === MediaRelationType::CATEGORY) {
-            $magentoPath = $this->copyCategoryImage($file);
+            $magentoPath = $this->copyCategoryImage($file, $absoluteSourcePath);
             $this->attachCategoryImage($magentoEntityId, $magentoPath);
+        } elseif ($relationType === MediaRelationType::DIMENSION) {
+            // QA FIX (Task 5.1): dimension drawings previously went through
+            // the gallery API (disabled, no roles) purely so they could
+            // never become a storefront primary image. That satisfied the
+            // "never primary" rule but still left them as gallery entries,
+            // which the task now explicitly forbids - a dedicated field
+            // (eccube_dimension_image) is required instead. Only the
+            // routing for NEW/changed imports is affected; files already
+            // in the gallery from earlier runs are not retroactively
+            // migrated here (that would be a full media re-sync, out of
+            // scope for this change - see BUILD_STATUS.md).
+            $magentoPath = $this->attachDedicatedFileField(
+                $file,
+                $absoluteSourcePath,
+                $magentoEntityId,
+                \Cosmotec\EccubeMigration\Model\Media\DocumentUploader::SUBDIR_DIMENSION,
+                'eccube_dimension_image'
+            );
+        } elseif ($relationType === MediaRelationType::CAD2D || $relationType === MediaRelationType::CAD3D) {
+            // QA FIX (Task 5.2/5.3): CAD files must live under
+            // pub/media/cad/ and be exposed through a dedicated admin
+            // field with view/replace/remove, not just tracked in
+            // eccube_media_map with no product-visible field at all
+            // (the previous behavior). Existing files already copied to
+            // the old cosmotec/eccube/cad2d|cad3d/ path are not moved
+            // retroactively - same scope note as DIMENSION above.
+            $magentoPath = $this->attachDedicatedFileField(
+                $file,
+                $absoluteSourcePath,
+                $magentoEntityId,
+                $relationType === MediaRelationType::CAD2D
+                    ? \Cosmotec\EccubeMigration\Model\Media\DocumentUploader::SUBDIR_CAD2D
+                    : \Cosmotec\EccubeMigration\Model\Media\DocumentUploader::SUBDIR_CAD3D,
+                $relationType === MediaRelationType::CAD2D ? 'eccube_cad2d_file' : 'eccube_cad3d_file'
+            );
         } elseif ($relationType->requiresImage()) {
-            // product, item, dimension - all real images
-            $magentoPath = $this->attachGalleryImageViaApi($file, $magentoEntityId);
+            // product, item - real gallery images
+            $magentoPath = $this->attachGalleryImageViaApi($file, $absoluteSourcePath, $magentoEntityId);
         } else {
-            // cad2d, cad3d, catalog - documents, not catalog images
-            $magentoPath = $this->copyToModuleMedia($file);
+            // catalog - documents, not catalog images
+            $magentoPath = $this->copyToModuleMedia($file, $absoluteSourcePath);
         }
 
         $isUpdate = $existing !== null && $existing->getMagentoFilePath() !== null;
@@ -410,6 +485,7 @@ class MediaImporter implements ImporterInterface
         $map->setContentHash($hash);
         $map->setStatus($isUpdate ? MediaMap::STATUS_UPDATED : MediaMap::STATUS_IMPORTED);
         $map->setErrorMessage(null);
+        $map->setSourceType($sourceType);
         $map->setLastSyncedAt((new \DateTimeImmutable())->format('Y-m-d H:i:s'));
         $this->mediaMapRepository->save($map);
 
@@ -446,9 +522,14 @@ class MediaImporter implements ImporterInterface
      * added to the gallery with no roles and are identified through
      * eccube_media_map's dimension_drawing role instead.
      */
-    private function attachGalleryImageViaApi(MediaFileInterface $file, int $magentoProductId): string
+    private function attachGalleryImageViaApi(MediaFileInterface $file, string $absoluteSourcePath, int $magentoProductId): string
     {
         $product = $this->magentoProductRepository->getById($magentoProductId, true);
+        // QA FIX: see Model\Import\ItemImporter::persist() for the full
+        // mechanism - round-tripping through setProductLinks(getProductLinks())
+        // stops Magento's SaveHandler from silently wiping this product's
+        // Related/Up-Sell/Cross-Sell/Connection Part links.
+        $product->setProductLinks($product->getProductLinks());
         $baseName = $this->sanitizeGalleryFilename(basename($file->getFileName()));
         $existingEntries = $product->getMediaGalleryEntries() ?? [];
 
@@ -461,7 +542,7 @@ class MediaImporter implements ImporterInterface
             }
         }
 
-        $absoluteSource = $file->getAbsolutePath((string) $this->config->getImageFolder());
+        $absoluteSource = $absoluteSourcePath;
         $binary = file_get_contents($absoluteSource);
 
         if ($binary === false) {
@@ -506,6 +587,36 @@ class MediaImporter implements ImporterInterface
         $this->magentoProductRepository->save($product);
 
         return $this->resolveStoredFile($magentoProductId, $baseName, $file->getFileName());
+    }
+
+    /**
+     * Copies a source file (dimension image, CAD 2D/3D) into a dedicated
+     * module media sub-directory and stamps its path onto a dedicated
+     * product EAV attribute - see Setup\Patch\Data\CreateDocumentAttributes
+     * and the "EC-CUBE Documents" admin section (Block\Adminhtml\Product\
+     * Documents). setCustomAttribute() is a silent no-op if that
+     * attribute doesn't exist yet, matching the existing cad_unavailable/
+     * eccube_product_model pattern - one missing attribute must never
+     * fail the whole media import. File type is already gated upstream by
+     * MediaValidator before persist() is ever reached.
+     */
+    private function attachDedicatedFileField(
+        MediaFileInterface $file,
+        string $absoluteSourcePath,
+        int $magentoProductId,
+        string $subDir,
+        string $attributeCode
+    ): string {
+        $relativePath = $this->documentUploader->copyFile($absoluteSourcePath, $subDir, basename($file->getFileName()));
+
+        $product = $this->magentoProductRepository->getById($magentoProductId, true);
+        // QA FIX: see attachGalleryImageViaApi() / ItemImporter::persist()
+        // for the full mechanism.
+        $product->setProductLinks($product->getProductLinks());
+        $product->setCustomAttribute($attributeCode, $relativePath);
+        $this->magentoProductRepository->save($product);
+
+        return $relativePath;
     }
 
     /**
@@ -674,7 +785,7 @@ class MediaImporter implements ImporterInterface
      *
      * Copied once per physical source file.
      */
-    private function copyToModuleMedia(MediaFileInterface $file): string
+    private function copyToModuleMedia(MediaFileInterface $file, string $absoluteSourcePath): string
     {
         $cacheKey = (string) $file->getUploadFileId();
 
@@ -682,7 +793,7 @@ class MediaImporter implements ImporterInterface
             return $this->copiedFiles[$cacheKey];
         }
 
-        $absoluteSource = $file->getAbsolutePath((string) $this->config->getImageFolder());
+        $absoluteSource = $absoluteSourcePath;
         $mediaDirectory = $this->filesystem->getDirectoryWrite(DirectoryList::MEDIA);
         $relativePath = self::DOCUMENT_SUBDIR . '/' . $file->getRelationType()->value . '/' . basename($file->getFileName());
 
@@ -707,7 +818,7 @@ class MediaImporter implements ImporterInterface
      * directory. Returns the value to store on the attribute (the path
      * relative to catalog/category/).
      */
-    private function copyCategoryImage(MediaFileInterface $file): string
+    private function copyCategoryImage(MediaFileInterface $file, string $absoluteSourcePath): string
     {
         $cacheKey = 'category:' . $file->getUploadFileId();
 
@@ -715,7 +826,7 @@ class MediaImporter implements ImporterInterface
             return $this->copiedFiles[$cacheKey];
         }
 
-        $absoluteSource = $file->getAbsolutePath((string) $this->config->getImageFolder());
+        $absoluteSource = $absoluteSourcePath;
         $mediaDirectory = $this->filesystem->getDirectoryWrite(DirectoryList::MEDIA);
         $fileName = basename($file->getFileName());
         $relativePath = 'catalog/category/' . $fileName;
@@ -775,23 +886,31 @@ class MediaImporter implements ImporterInterface
     }
 
     /**
-     * Metadata hash (filename + size + mtime) for large files, SHA-256 of
-     * the content for small ones. Deterministic, and never loads a large
-     * file into memory just to detect a change.
+     * Metadata hash (filename + size + mtime) for large local files,
+     * SHA-256 of the content for small ones. Deterministic, and never
+     * loads a large LOCAL file into memory just to detect a change.
+     *
+     * A remote-recovered file is always content-hashed regardless of
+     * size, never via the mtime fallback: $absoluteSourcePath there is a
+     * freshly-downloaded temp file whose mtime is "now" on every single
+     * run, which would make the metadata hash change on every re-run and
+     * defeat idempotency for any remote file over the size gate. This
+     * costs nothing extra - the full content is already in memory from
+     * the download itself.
      */
-    private function computeHash(MediaFileInterface $file): string
+    private function computeHash(string $absoluteSourcePath, MediaFileInterface $file, bool $isRemote = false): string
     {
-        $path = $file->getAbsolutePath((string) $this->config->getImageFolder());
-        $size = @filesize($path);
-        $mtime = @filemtime($path);
+        $size = @filesize($absoluteSourcePath);
 
-        if ($size !== false && $size <= 1048576) {
-            $content = @file_get_contents($path);
+        if ($isRemote || ($size !== false && $size <= 1048576)) {
+            $content = @file_get_contents($absoluteSourcePath);
 
             if ($content !== false) {
                 return 'sha256:' . hash('sha256', $content);
             }
         }
+
+        $mtime = @filemtime($absoluteSourcePath);
 
         return 'meta:' . hash('sha256', sprintf(
             '%s|%s|%s',
@@ -809,7 +928,8 @@ class MediaImporter implements ImporterInterface
         string $status,
         float $startTime,
         int $startMemory,
-        bool $countAsFailure = true
+        bool $countAsFailure = true,
+        ?string $sourceType = null
     ): void {
         if ($countAsFailure) {
             // NEEDS_REVIEW (e.g. a source file genuinely missing on disk)
@@ -844,6 +964,7 @@ class MediaImporter implements ImporterInterface
             $map->setMediaClass($file->getMediaClass()->value);
             $map->setStatus($status);
             $map->setErrorMessage($message);
+            $map->setSourceType($sourceType ?? MediaMap::SOURCE_TYPE_NOT_FOUND);
             $this->mediaMapRepository->save($map);
         }
 

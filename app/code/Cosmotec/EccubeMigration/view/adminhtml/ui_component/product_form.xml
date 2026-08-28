@@ -16,10 +16,10 @@
         </settings>
         <block name="cosmotec_eccube_additional_content_block" class="Cosmotec\EccubeMigration\Block\Adminhtml\Product\AdditionalContent" template="Cosmotec_EccubeMigration::product/additional_content.phtml"/>
     </htmlContent>
-    <htmlContent name="cosmotec_eccube_connection_parts" sortOrder="96">
+    <htmlContent name="cosmotec_eccube_documents" sortOrder="97">
         <argument name="data" xsi:type="array">
             <item name="wrapper" xsi:type="array">
-                <item name="label" xsi:type="string" translate="true">EC-CUBE Connection Parts</item>
+                <item name="label" xsi:type="string" translate="true">EC-CUBE Documents</item>
                 <item name="collapsible" xsi:type="boolean">true</item>
                 <item name="opened" xsi:type="boolean">false</item>
             </item>
@@ -30,6 +30,14 @@
                 <componentType>fieldset</componentType>
             </wrapper>
         </settings>
-        <block name="cosmotec_eccube_connection_parts_block" class="Cosmotec\EccubeMigration\Block\Adminhtml\Product\ConnectionParts" template="Cosmotec_EccubeMigration::product/connection_parts.phtml"/>
+        <block name="cosmotec_eccube_documents_block" class="Cosmotec\EccubeMigration\Block\Adminhtml\Product\Documents" template="Cosmotec_EccubeMigration::product/documents.phtml"/>
     </htmlContent>
+    <!--
+        Connection Parts: no longer a static htmlContent block here -
+        Task 2 replaced the read-only display with a native Magento
+        product-link fieldset, injected via
+        Ui\DataProvider\Product\Form\Modifier\ConnectionParts (registered
+        in etc/di.xml's Modifier\Pool), the same mechanism Magento's own
+        Related/Up-Sells/Cross-Sells fieldset uses.
+    -->
 </form>

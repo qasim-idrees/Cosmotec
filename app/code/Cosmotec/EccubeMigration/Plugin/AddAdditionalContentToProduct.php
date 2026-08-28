@@ -50,8 +50,15 @@ class AddAdditionalContentToProduct
         $tabs = [];
 
         foreach ($this->contentProvider->getByMagentoProductId($productId) as $map) {
+            $sourceRowId = $map->getEccubeAdditionalInformationId();
+
             $tabs[] = [
-                'source_row_id' => (int) $map->getEccubeAdditionalInformationId(),
+                'entity_id' => (int) $map->getId(),
+                // Never coerced to (int) - a NULL here (admin-created tab,
+                // no EC-CUBE origin) must stay NULL so
+                // Block\Adminhtml\Product\AdditionalContent::isEccubeImported()
+                // can tell it apart from a real source row id of 0.
+                'source_row_id' => $sourceRowId !== null ? (int) $sourceRowId : null,
                 'tab_name_en' => $map->getTabNameEn(),
                 'tab_name_ja' => $map->getTabNameJa(),
                 'html_content' => $map->getHtmlContent(),

@@ -1,0 +1,146 @@
+<?php
+/** @var \Cosmotec\EccubeMigration\Block\Adminhtml\Product\Documents $block */
+$productId = $block->getProductId();
+[$ref1, $ref2] = $block->getFirstTwoReferences();
+$blockId = $block->getNameInLayout();
+?>
+<div class="admin__fieldset-wrapper-content cosmotec-documents" id="<?= $block->escapeHtmlAttr($blockId) ?>">
+    <form id="cosmotec-documents-form">
+        <input type="hidden" name="product_id" value="<?= (int) $productId ?>"/>
+        <input type="hidden" name="ref_entity_id_1" value="<?= $ref1 !== null ? (int) $ref1->getId() : 0 ?>"/>
+        <input type="hidden" name="ref_entity_id_2" value="<?= $ref2 !== null ? (int) $ref2->getId() : 0 ?>"/>
+
+        <fieldset class="admin__fieldset cosmotec-documents-group">
+            <legend class="admin__legend"><span><?= $block->escapeHtml(__('Dimension Image')) ?></span></legend>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Dimension Image')) ?></span></label>
+                <div class="admin__field-control">
+                    <?php if ($block->getDimensionImageUrl()): ?>
+                        <div class="cosmotec-doc-current">
+                            <img src="<?= $block->escapeUrl($block->getDimensionImageUrl()) ?>" alt="" style="max-width:120px; max-height:120px; display:block; margin-bottom:5px;"/>
+                            <label><input type="checkbox" name="remove_dimension_image" value="1"/> <?= $block->escapeHtml(__('Remove')) ?></label>
+                        </div>
+                    <?php endif; ?>
+                    <input type="file" name="dimension_image" accept=".jpg,.jpeg,.png,.gif,.bmp"/>
+                    <p class="admin__field-note"><?= $block->escapeHtml(__('Not part of the product image gallery.')) ?></p>
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="admin__fieldset cosmotec-documents-group">
+            <legend class="admin__legend"><span><?= $block->escapeHtml(__('CAD')) ?></span></legend>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('CAD 2D File')) ?></span></label>
+                <div class="admin__field-control">
+                    <?php if ($block->getCad2dFileUrl()): ?>
+                        <div class="cosmotec-doc-current">
+                            <a href="<?= $block->escapeUrl($block->getCad2dFileUrl()) ?>" target="_blank" rel="noopener"><?= $block->escapeHtml(basename((string) $block->getCad2dFilePath())) ?></a>
+                            <label><input type="checkbox" name="remove_cad2d_file" value="1"/> <?= $block->escapeHtml(__('Remove')) ?></label>
+                        </div>
+                    <?php endif; ?>
+                    <input type="file" name="cad2d_file" accept=".zip"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('CAD 3D File')) ?></span></label>
+                <div class="admin__field-control">
+                    <?php if ($block->getCad3dFileUrl()): ?>
+                        <div class="cosmotec-doc-current">
+                            <a href="<?= $block->escapeUrl($block->getCad3dFileUrl()) ?>" target="_blank" rel="noopener"><?= $block->escapeHtml(basename((string) $block->getCad3dFilePath())) ?></a>
+                            <label><input type="checkbox" name="remove_cad3d_file" value="1"/> <?= $block->escapeHtml(__('Remove')) ?></label>
+                        </div>
+                    <?php endif; ?>
+                    <input type="file" name="cad3d_file" accept=".zip"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('CAD is not available')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="checkbox" name="cad_unavailable" value="1" <?= $block->isCadUnavailable() ? 'checked="checked"' : '' ?>/>
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="admin__fieldset cosmotec-documents-group">
+            <legend class="admin__legend"><span><?= $block->escapeHtml(__('Documents')) ?></span></legend>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Document Name (1)')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="text" name="document_name_1" class="admin__control-text" style="width:100%;" value="<?= $block->escapeHtmlAttr($ref1?->getReferenceName() ?? '') ?>"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Reference Link (1)')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="text" name="reference_link_1" class="admin__control-text" style="width:100%;" value="<?= $block->escapeHtmlAttr($ref1?->getReferenceLink() ?? '') ?>"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Document Name (2)')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="text" name="document_name_2" class="admin__control-text" style="width:100%;" value="<?= $block->escapeHtmlAttr($ref2?->getReferenceName() ?? '') ?>"/>
+                </div>
+            </div>
+            <div class="admin__field">
+                <label class="admin__field-label"><span><?= $block->escapeHtml(__('Reference Link (2)')) ?></span></label>
+                <div class="admin__field-control">
+                    <input type="text" name="reference_link_2" class="admin__control-text" style="width:100%;" value="<?= $block->escapeHtmlAttr($ref2?->getReferenceLink() ?? '') ?>"/>
+                </div>
+            </div>
+        </fieldset>
+
+        <div class="cosmotec-documents-toolbar" style="margin-top:15px;">
+            <button type="button" class="action-primary" id="cosmotec-documents-save-btn">
+                <span><?= $block->escapeHtml(__('Save EC-CUBE Documents')) ?></span>
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+require([
+    'jquery',
+    'domReady!'
+], function ($) {
+    'use strict';
+
+    var saveUrl = '<?= /* @noEscape */ $block->getSaveUrl() ?>',
+        $root = $('#<?= /* @noEscape */ $blockId ?>');
+
+    if ($root.data('cosmotecDocumentsInitialized')) {
+        return;
+    }
+    $root.data('cosmotecDocumentsInitialized', true);
+
+    function formKey() {
+        return window.FORM_KEY || $('input[name="form_key"]').first().val();
+    }
+
+    $root.on('click', '#cosmotec-documents-save-btn', function (e) {
+        e.preventDefault();
+
+        var $form = $root.find('#cosmotec-documents-form'),
+            formData = new FormData($form.get(0));
+
+        formData.append('form_key', formKey());
+
+        $.ajax({
+            url: saveUrl,
+            type: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            dataType: 'json',
+            showLoader: true
+        }).done(function (response) {
+            if (response.success) {
+                window.location.reload();
+            } else {
+                alert(response.message || 'Could not save documents.');
+            }
+        }).fail(function () {
+            alert('Could not save documents.');
+        });
+    });
+});
+</script>

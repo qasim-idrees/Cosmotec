@@ -37,6 +37,17 @@ interface MagentoParentProductInterface
     public function getAttributeSetId(): int;
 
     /**
+     * dtb_item.description_en (English preferred), falling back to
+     * dtb_item.description (Japanese) when English is unavailable - see
+     * ItemMapper/GroupedProductStrategy::resolveShortDescription(). This
+     * is the same content EC-CUBE's own storefront renders as the item's
+     * description (Item.descriptionWithLocale in detail.twig,
+     * source-confirmed), mapped to Magento's native Grouped Product
+     * short_description attribute.
+     */
+    public function getShortDescription(): ?string;
+
+    /**
      * Already-resolved Magento category entity_ids.
      *
      * @return int[]

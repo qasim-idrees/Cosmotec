@@ -31,6 +31,10 @@ class ModuleConfig implements EccubeConfigProviderInterface
     private const XML_PATH_ENABLE_SCHEDULED_IMPORT = 'cosmotec_eccube_migration/cron/enable_scheduled_import';
     private const XML_PATH_ENABLE_SCHEDULED_SYNC = 'cosmotec_eccube_migration/cron/enable_scheduled_sync';
 
+    private const XML_PATH_REMOTE_MEDIA_FALLBACK_ENABLED = 'cosmotec_eccube_migration/remote_media/enabled';
+    private const XML_PATH_REMOTE_MEDIA_BASE_URL = 'cosmotec_eccube_migration/remote_media/base_url';
+    private const XML_PATH_REMOTE_MEDIA_TIMEOUT = 'cosmotec_eccube_migration/remote_media/timeout';
+
     private const XML_PATH_HOST = 'cosmotec_eccube_migration/connection/host';
     private const XML_PATH_PORT = 'cosmotec_eccube_migration/connection/port';
     private const XML_PATH_DATABASE = 'cosmotec_eccube_migration/connection/database';
@@ -44,6 +48,7 @@ class ModuleConfig implements EccubeConfigProviderInterface
     private const DEFAULT_PORT = 3306;
     private const DEFAULT_TIMEOUT = 5;
     private const DEFAULT_ROOT_CATEGORY_ID = 2;
+    private const DEFAULT_REMOTE_MEDIA_TIMEOUT = 10;
 
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
@@ -139,5 +144,25 @@ class ModuleConfig implements EccubeConfigProviderInterface
         $value = (int) $this->scopeConfig->getValue(self::XML_PATH_TIMEOUT, $this->scopeType);
 
         return $value > 0 ? $value : self::DEFAULT_TIMEOUT;
+    }
+
+    public function isRemoteMediaFallbackEnabled(): bool
+    {
+        return (bool) $this->scopeConfig->isSetFlag(self::XML_PATH_REMOTE_MEDIA_FALLBACK_ENABLED, $this->scopeType);
+    }
+
+    public function getRemoteMediaBaseUrl(): ?string
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_REMOTE_MEDIA_BASE_URL, $this->scopeType);
+        $value = $value !== null ? rtrim((string) $value, '/') : '';
+
+        return $value !== '' ? $value : null;
+    }
+
+    public function getRemoteMediaTimeout(): int
+    {
+        $value = (int) $this->scopeConfig->getValue(self::XML_PATH_REMOTE_MEDIA_TIMEOUT, $this->scopeType);
+
+        return $value > 0 ? $value : self::DEFAULT_REMOTE_MEDIA_TIMEOUT;
     }
 }

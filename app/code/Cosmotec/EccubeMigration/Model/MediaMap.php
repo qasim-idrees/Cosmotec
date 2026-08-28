@@ -43,6 +43,8 @@ use Magento\Framework\Model\AbstractModel;
  * @method $this setStatus(string $status)
  * @method $this setErrorMessage(?string $message)
  * @method $this setLastSyncedAt(?string $timestamp)
+ * @method string getSourceType()
+ * @method $this setSourceType(string $sourceType)
  */
 class MediaMap extends AbstractModel
 {
@@ -53,6 +55,11 @@ class MediaMap extends AbstractModel
     public const STATUS_ERROR = 'error';
     public const STATUS_NEEDS_REVIEW = 'needs_review';
     public const STATUS_OBSOLETE = 'obsolete';
+
+    /** Where the imported binary actually came from - see eccube_media_map.source_type. */
+    public const SOURCE_TYPE_LOCAL = 'local';
+    public const SOURCE_TYPE_REMOTE = 'remote';
+    public const SOURCE_TYPE_NOT_FOUND = 'not_found';
 
     protected function _construct(): void
     {

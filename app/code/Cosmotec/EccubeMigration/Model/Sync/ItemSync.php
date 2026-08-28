@@ -14,6 +14,7 @@ use Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\ItemRepositoryInterface as EccubeItemRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
+use Cosmotec\EccubeMigration\Model\Category\ChildCategoryInheritanceService;
 use Cosmotec\EccubeMigration\Model\Import\ImportContext;
 use Cosmotec\EccubeMigration\Model\Import\ImportResult;
 use Cosmotec\EccubeMigration\Model\Import\ItemImporter;
@@ -50,6 +51,7 @@ class ItemSync extends ItemImporter
         UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         UrlKeyCollisionChecker $urlKeyCollisionChecker,
         ImportLogger $logger,
+        ChildCategoryInheritanceService $childCategoryInheritanceService,
         private readonly EccubeItemRepositoryInterface $eccubeItemRepository
     ) {
         parent::__construct(
@@ -65,7 +67,8 @@ class ItemSync extends ItemImporter
             $storeManager,
             $urlKeyFallbackGenerator,
             $urlKeyCollisionChecker,
-            $logger
+            $logger,
+            $childCategoryInheritanceService
         );
     }
 

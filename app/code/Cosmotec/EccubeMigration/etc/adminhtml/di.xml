@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <!--
+        Registers the Connection Parts fieldset (Task 2) into the real
+        admin product-edit form. Magento\Catalog\Ui\DataProvider\Product\
+        Form\Modifier\Pool is itself a virtualType declared in
+        Magento_Catalog's own etc/adminhtml/di.xml (admin-area scope,
+        not global) - an override in this module's global etc/di.xml
+        never merged with it, which is why the Connection Parts fieldset
+        never actually appeared on the real admin page despite the
+        modifier class itself working correctly when tested directly.
+    -->
+    <virtualType name="Magento\Catalog\Ui\DataProvider\Product\Form\Modifier\Pool" type="Magento\Ui\DataProvider\Modifier\Pool">
+        <arguments>
+            <argument name="modifiers" xsi:type="array">
+                <item name="cosmotec-eccube-connection-parts" xsi:type="array">
+                    <item name="class" xsi:type="string">Cosmotec\EccubeMigration\Ui\DataProvider\Product\Form\Modifier\ConnectionParts</item>
+                    <item name="sortOrder" xsi:type="number">115</item>
+                </item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <!--
+        QA FIX: Magento's own Related.php modifier receives scopeName =
+        "product_form.product_form" via this exact DI pattern (see
+        vendor/magento/module-catalog/etc/adminhtml/di.xml). Without it,
+        ConnectionParts::getButtonSet()/getGenericModal() build UI-component
+        target paths (used by the "Add Connection Part" button's
+        toggleModal/render actions, and by the modal's own save action)
+        using an EMPTY scope prefix instead of the real one - the button
+        and modal render correctly (meta/data are otherwise unaffected),
+        but clicking "Add Connection Part" silently does nothing, because
+        the client-side action targets a UI-component path that doesn't
+        exist. This constructor argument was missing entirely; adding it
+        is the fix.
+    -->
+    <type name="Cosmotec\EccubeMigration\Ui\DataProvider\Product\Form\Modifier\ConnectionParts">
+        <arguments>
+            <argument name="scopeName" xsi:type="string">product_form.product_form</argument>
+        </arguments>
+    </type>
+</config>

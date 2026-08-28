@@ -12,10 +12,19 @@ namespace Cosmotec\EccubeMigration\Api;
 
 use Cosmotec\EccubeMigration\Model\ProductReferenceMap;
 use Magento\Framework\Exception\CouldNotSaveException;
+use Magento\Framework\Exception\NoSuchEntityException;
 
 interface ProductReferenceMapRepositoryInterface
 {
     public function getByReferenceId(int $eccubeReferenceId): ?ProductReferenceMap;
+
+    /**
+     * Direct entity_id lookup, used by the admin "EC-CUBE Documents"
+     * Document Name/Reference Link (1)/(2) save action - see Task 5.5/5.6.
+     *
+     * @throws NoSuchEntityException
+     */
+    public function getById(int $entityId): ProductReferenceMap;
 
     /**
      * @throws CouldNotSaveException

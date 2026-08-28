@@ -15,6 +15,7 @@ use Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\ProductMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
+use Cosmotec\EccubeMigration\Model\Category\ChildCategoryInheritanceService;
 use Cosmotec\EccubeMigration\Model\ProductMap;
 use Cosmotec\EccubeMigration\Model\Reader\ItemReader;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
@@ -73,7 +74,8 @@ class ProductRelationImporter implements ImporterInterface
         private readonly ProductLinkExtensionFactory $productLinkExtensionFactory,
         private readonly StockRegistryInterface $stockRegistry,
         private readonly GroupedProductType $groupedProductType,
-        private readonly ImportLogger $logger
+        private readonly ImportLogger $logger,
+        private readonly ChildCategoryInheritanceService $childCategoryInheritanceService
     ) {
     }
 
@@ -162,6 +164,12 @@ class ProductRelationImporter implements ImporterInterface
                 $parentProductId,
                 $item->getId()
             ));
+            $this->childCategoryInheritanceService->cascade(
+                $item->getId(),
+                $parentProductId,
+                $parentProduct->getCategoryIds() ?? [],
+                true
+            );
 
             return;
         }
@@ -183,6 +191,21 @@ class ProductRelationImporter implements ImporterInterface
         }
 
         $this->refreshParentStockStatus($parentProductId, $parentProduct->getSku());
+
+        // New children just got linked above - make sure they receive the
+        // parent's current categories immediately, so a fresh install's
+        // documented pipeline (...-> import:product-relations) ends with
+        // children already categorized rather than waiting for a later
+        // sync:group-products run. Ongoing category CHANGES on an
+        // already-linked item are handled separately, by
+        // ItemImporter::persist() (shared with ItemSync) - see
+        // ChildCategoryInheritanceService's class docblock.
+        $this->childCategoryInheritanceService->cascade(
+            $item->getId(),
+            $parentProductId,
+            $parentProduct->getCategoryIds() ?? [],
+            false
+        );
 
         foreach ($pendingChildren as $childMap) {
             $childMap->setRelationLinked(1);

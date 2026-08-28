@@ -92,6 +92,48 @@
                 </field>
             </group>
 
+            <group id="remote_media"
+                   translate="label"
+                   type="text"
+                   sortOrder="12"
+                   showInDefault="1"
+                   showInWebsite="0"
+                   showInStore="0">
+                <label>Remote Media (EC-CUBE S3/CloudFront)</label>
+                <field id="enabled"
+                       translate="label comment"
+                       type="select"
+                       sortOrder="10"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Enable Remote Media Fallback</label>
+                    <comment>When a source file is absent from the local EC-CUBE Image Folder Path, attempt to recover it from EC-CUBE's remote S3/CloudFront storage below before marking it SOURCE_FILE_NOT_FOUND. Off by default - local-only behavior is unchanged unless explicitly enabled.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="base_url"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="20"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Remote Media Base URL</label>
+                    <comment><![CDATA[Base URL of the EC-CUBE CDN, e.g. https://static.cosmotec-co.jp - no trailing slash. Images are looked up under /html/upload/save_image/, CAD 2D/3D files under /html/upload/save_zip/, matching EC-CUBE's own AwsS3FileUpload/framework.yaml package layout. Required for remote fallback to have any effect.]]></comment>
+                </field>
+                <field id="timeout"
+                       translate="label comment"
+                       type="text"
+                       sortOrder="30"
+                       showInDefault="1"
+                       showInWebsite="0"
+                       showInStore="0">
+                    <label>Remote Media Timeout (seconds)</label>
+                    <comment>Connect/read timeout for remote existence checks and downloads. Default: 10.</comment>
+                    <validate>validate-digits validate-greater-than-zero</validate>
+                </field>
+            </group>
+
             <group id="cron"
                    translate="label"
                    type="text"

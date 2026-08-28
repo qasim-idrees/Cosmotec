@@ -28,7 +28,16 @@ class MediaValidator implements ValidatorInterface
     ) {
     }
 
-    public function validate(object $source): ValidationResult
+    /**
+     * $resolvedAbsolutePath, when passed, is trusted as the already-
+     * resolved file to validate (local OR a temp download from remote
+     * media fallback - see MediaImporter/RemoteMediaResolver) instead of
+     * this method recomputing a local-only path itself. Omitting it
+     * preserves this method's original, unchanged local-only behavior -
+     * ValidatorInterface::validate(object $source) callers elsewhere are
+     * unaffected.
+     */
+    public function validate(object $source, ?string $resolvedAbsolutePath = null): ValidationResult
     {
         if (!$source instanceof MediaFileInterface) {
             return ValidationResult::failure([
@@ -46,13 +55,13 @@ class MediaValidator implements ValidatorInterface
 
         $folder = $this->config->getImageFolder();
 
-        if ($folder === null) {
+        if ($resolvedAbsolutePath === null && $folder === null) {
             return ValidationResult::failure([
                 'EC-CUBE Image Folder Path is not configured (Stores > Configuration > Cosmotec > EC-CUBE Migration).',
             ]);
         }
 
-        $path = $source->getAbsolutePath($folder);
+        $path = $resolvedAbsolutePath ?? $source->getAbsolutePath((string) $folder);
 
         if (!is_file($path)) {
             // The EC-CUBE database filename is authoritative. A genuinely
@@ -66,7 +75,7 @@ class MediaValidator implements ValidatorInterface
                     $source->getUploadFileId(),
                     $source->getOwnerId(),
                     $source->getFileName(),
-                    $folder,
+                    $folder ?? '(not configured)',
                     $path
                 ),
             ]);

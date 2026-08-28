@@ -17,6 +17,7 @@ use Cosmotec\EccubeMigration\Model\ResourceModel\ProductReferenceMap as ProductR
 use Cosmotec\EccubeMigration\Model\ResourceModel\ProductReferenceMap\CollectionFactory;
 use Magento\Framework\Exception\AlreadyExistsException;
 use Magento\Framework\Exception\CouldNotSaveException;
+use Magento\Framework\Exception\NoSuchEntityException;
 
 class ProductReferenceMapRepository implements ProductReferenceMapRepositoryInterface
 {
@@ -34,6 +35,19 @@ class ProductReferenceMapRepository implements ProductReferenceMapRepositoryInte
         $this->resource->load($map, $eccubeReferenceId, 'eccube_reference_id');
 
         return $map->getId() === null ? null : $map;
+    }
+
+    public function getById(int $entityId): ProductReferenceMap
+    {
+        /** @var ProductReferenceMap $map */
+        $map = $this->mapFactory->create();
+        $this->resource->load($map, $entityId);
+
+        if ($map->getId() === null) {
+            throw new NoSuchEntityException(__('EC-CUBE product reference with id "%1" does not exist.', $entityId));
+        }
+
+        return $map;
     }
 
     public function save(ProductReferenceMap $map): ProductReferenceMap

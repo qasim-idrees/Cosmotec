@@ -14,6 +14,7 @@ use Cosmotec\EccubeMigration\Api\Data\ItemInterface as EccubeItemInterface;
 use Cosmotec\EccubeMigration\Api\ItemMapRepositoryInterface;
 use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
+use Cosmotec\EccubeMigration\Model\Category\ChildCategoryInheritanceService;
 use Cosmotec\EccubeMigration\Model\DTO\MagentoParentProduct;
 use Cosmotec\EccubeMigration\Model\ItemMap;
 use Cosmotec\EccubeMigration\Model\ItemMapFactory;
@@ -56,7 +57,8 @@ class ItemImporter implements ImporterInterface
         private readonly StoreManagerInterface $storeManager,
         private readonly UrlKeyFallbackGenerator $urlKeyFallbackGenerator,
         private readonly UrlKeyCollisionChecker $urlKeyCollisionChecker,
-        protected readonly ImportLogger $logger
+        protected readonly ImportLogger $logger,
+        private readonly ChildCategoryInheritanceService $childCategoryInheritanceService
     ) {
     }
 
@@ -160,6 +162,28 @@ class ItemImporter implements ImporterInterface
                 // and save() below ambiently resolve to whatever store
                 // StoreManager::getStore() returns in CLI context.
                 $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId(), false, 0);
+
+                // QA FIX: explicitly re-set the product's own current
+                // links before save(). Magento\Catalog\Model\Product\
+                // Link\SaveHandler::execute() (fired from
+                // Product::afterSave() on every single save,
+                // unconditionally) deletes ALL of a product's existing
+                // catalog_product_link rows, then re-inserts from
+                // $entity->getProductLinks(). Live-confirmed this round:
+                // merely calling getProductLinks() first (forcing its
+                // lazy-load) is NOT enough - the re-inserted set still
+                // silently dropped every link type this importer never
+                // explicitly deals with (a full import:group-products run
+                // wiped all 862 Connection Part links to 0 with zero
+                // errors reported anywhere), while calling
+                // setProductLinks() with that same loaded array does not
+                // drop anything (also live-confirmed: setProductLinks()
+                // additionally clears the 'ignore_links_flag' internal
+                // data flag that getProductLinks() alone leaves
+                // untouched, which is what the rest of the save pipeline
+                // actually keys off). Explicitly round-tripping through
+                // setProductLinks() is the correct, verified fix.
+                $magentoProduct->setProductLinks($magentoProduct->getProductLinks());
             } catch (NoSuchEntityException) {
                 // Mapped product was deleted out-of-band; fall back to creating a new one.
                 $magentoProduct = $this->newProduct();
@@ -176,6 +200,15 @@ class ItemImporter implements ImporterInterface
             ? ProductStatus::STATUS_ENABLED
             : ProductStatus::STATUS_DISABLED);
         $magentoProduct->setVisibility($mapped->getVisibility());
+
+        // dtb_item.description_en/description -> Magento's native
+        // short_description attribute (Task 3 QA fix: this was read at
+        // the repository/DTO layer but never wired through to the
+        // mapper/importer). Always set (never skipped when null) so a
+        // source description that is later cleared correctly clears the
+        // Magento value too, matching CategoryImporter's identical
+        // clear-on-empty behavior for category descriptions.
+        $magentoProduct->setShortDescription($mapped->getShortDescription() ?? '');
 
         if (!$isUpdate) {
             // Only ever set at creation, never on update. $mapped->
@@ -266,6 +299,19 @@ class ItemImporter implements ImporterInterface
         if ($mapped->getCategoryIds() !== []) {
             $this->categoryLinkManagement->assignProductToCategories($saved->getSku(), $mapped->getCategoryIds());
         }
+
+        // Propagate this item's (now current) category set to its already-
+        // linked Simple Product children - covers sync (EC-CUBE category
+        // change on an existing item, picked up by ItemSync since it
+        // shares this exact code path). On a first-ever import the item
+        // has no linked children yet (see ProductRelationImporter, which
+        // covers that side), so this is a cheap no-op here.
+        $this->childCategoryInheritanceService->cascade(
+            $mapped->getEccubeItemId(),
+            $magentoProductId,
+            $mapped->getCategoryIds(),
+            false
+        );
 
         /** @var ItemMap $map */
         $map = $existingMap ?? $this->itemMapFactory->create();

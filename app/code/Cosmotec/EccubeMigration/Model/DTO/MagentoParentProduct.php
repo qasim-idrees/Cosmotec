@@ -27,7 +27,8 @@ final class MagentoParentProduct implements MagentoParentProductInterface
         private readonly bool $enabled,
         private readonly int $visibility,
         private readonly int $attributeSetId,
-        private readonly array $categoryIds
+        private readonly array $categoryIds,
+        private readonly ?string $shortDescription = null
     ) {
         $sortedCategoryIds = $this->categoryIds;
         sort($sortedCategoryIds);
@@ -45,7 +46,13 @@ final class MagentoParentProduct implements MagentoParentProductInterface
             $this->enabled ? '1' : '0',
             $this->visibility,
             implode(',', $sortedCategoryIds),
+            $this->shortDescription ?? '',
         ]));
+    }
+
+    public function getShortDescription(): ?string
+    {
+        return $this->shortDescription;
     }
 
     public function getEccubeItemId(): int

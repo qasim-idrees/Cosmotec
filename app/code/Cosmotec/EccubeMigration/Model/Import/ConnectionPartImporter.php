@@ -19,7 +19,12 @@ use Cosmotec\EccubeMigration\Api\SyncHistoryRepositoryInterface;
 use Cosmotec\EccubeMigration\Logger\ImportLogger;
 use Cosmotec\EccubeMigration\Model\CouplingProductMap;
 use Cosmotec\EccubeMigration\Model\CouplingProductMapFactory;
+use Cosmotec\EccubeMigration\Model\ProductLink\ConnectionPartLinkType;
 use Cosmotec\EccubeMigration\Model\SyncHistory;
+use Magento\Catalog\Api\Data\ProductLinkExtensionFactory;
+use Magento\Catalog\Api\Data\ProductLinkInterface;
+use Magento\Catalog\Api\Data\ProductLinkInterfaceFactory;
+use Magento\Catalog\Api\ProductRepositoryInterface as MagentoProductRepositoryInterface;
 use Magento\Framework\Exception\LocalizedException;
 
 /**
@@ -49,6 +54,9 @@ class ConnectionPartImporter implements ImporterInterface
         private readonly ItemMapRepositoryInterface $itemMapRepository,
         private readonly ProductMapRepositoryInterface $productMapRepository,
         private readonly SyncHistoryRepositoryInterface $syncHistoryRepository,
+        private readonly MagentoProductRepositoryInterface $magentoProductRepository,
+        private readonly ProductLinkInterfaceFactory $productLinkFactory,
+        private readonly ProductLinkExtensionFactory $productLinkExtensionFactory,
         private readonly ImportLogger $logger
     ) {
     }
@@ -149,6 +157,8 @@ class ConnectionPartImporter implements ImporterInterface
                 $result->incrementImported();
             }
 
+            $this->syncProductLink($parentMagentoId, $connectedMagentoId);
+
             $this->recordHistory(
                 $context,
                 $coupling->getId(),
@@ -231,6 +241,64 @@ class ConnectionPartImporter implements ImporterInterface
         }
 
         $this->mapRepository->save($map);
+    }
+
+    /**
+     * Task 2 QA rework: mirrors ProductRelationImporter's associated-link
+     * pattern, but for the "connection_part" link type instead of
+     * "associated" - keeps the native Magento product-link representation
+     * (the one the admin "EC-CUBE Connection Parts" fieldset now reads
+     * and writes, see Ui\DataProvider\Product\Form\Modifier\
+     * ConnectionParts) in sync with every EC-CUBE-driven import/sync run,
+     * on top of - not instead of - the existing eccube_coupling_product_map
+     * provenance tracking. Idempotent: a link already present for this
+     * SKU pair is left untouched.
+     */
+    private function syncProductLink(int $parentMagentoId, int $connectedMagentoId): void
+    {
+        try {
+            $parentProduct = $this->magentoProductRepository->getById($parentMagentoId);
+            $connectedProduct = $this->magentoProductRepository->getById($connectedMagentoId);
+        } catch (LocalizedException) {
+            return;
+        }
+
+        $existingLinks = $parentProduct->getProductLinks() ?? [];
+
+        foreach ($existingLinks as $link) {
+            if ($link->getLinkType() === ConnectionPartLinkType::LINK_TYPE_CODE
+                && $link->getLinkedProductSku() === $connectedProduct->getSku()) {
+                return;
+            }
+        }
+
+        $position = count(array_filter(
+            $existingLinks,
+            static fn (ProductLinkInterface $link): bool => $link->getLinkType() === ConnectionPartLinkType::LINK_TYPE_CODE
+        ));
+
+        $link = $this->productLinkFactory->create();
+        $link->setSku($parentProduct->getSku());
+        $link->setLinkedProductSku($connectedProduct->getSku());
+        $link->setLinkType(ConnectionPartLinkType::LINK_TYPE_CODE);
+        $link->setPosition($position + 1);
+
+        $extensionAttributes = $link->getExtensionAttributes() ?? $this->productLinkExtensionFactory->create();
+        $link->setExtensionAttributes($extensionAttributes);
+
+        $existingLinks[] = $link;
+        $parentProduct->setProductLinks($existingLinks);
+
+        try {
+            $this->magentoProductRepository->save($parentProduct);
+        } catch (LocalizedException $e) {
+            $this->logger->error(sprintf(
+                'ConnectionPartImporter: failed to save native product link parent=%d connected=%d: %s',
+                $parentMagentoId,
+                $connectedMagentoId,
+                $e->getMessage()
+            ));
+        }
     }
 
     private function toIntOrNull(mixed $value): ?int

@@ -34,8 +34,30 @@ class GroupedProductStrategy implements ProductTypeStrategyInterface
             $item->getDisplayStatusId() === 1,
             Visibility::VISIBILITY_BOTH,
             $attributeSetId,
-            $categoryIds
+            $categoryIds,
+            $this->resolveShortDescription($item)
         );
+    }
+
+    /**
+     * English preferred (dtb_item.description_en), Japanese fallback
+     * (dtb_item.description) when English is unavailable - same policy as
+     * resolveName() above and CategoryMapper::resolveDescription(). This
+     * is real, populated content (89-97% of items, live-confirmed) and is
+     * exactly what EC-CUBE's own storefront renders as the item
+     * description (Item.descriptionWithLocale in detail.twig).
+     */
+    private function resolveShortDescription(ItemInterface $item): ?string
+    {
+        $descriptionEn = $item->getDescriptionEn();
+
+        if ($descriptionEn !== null && trim($descriptionEn) !== '') {
+            return $descriptionEn;
+        }
+
+        $description = $item->getDescription();
+
+        return $description !== null && trim($description) !== '' ? $description : null;
     }
 
     /**

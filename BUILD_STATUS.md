@@ -4785,3 +4785,230 @@ baseline. `php -l`, URL-key-specific tests (13/13), full suite (90/90),
 `setup:di:compile`, `setup:db:status`, `git diff --check` all clean.
 
 **Result: PASS on every point. Ready to commit on approval.**
+
+### Round 57 — Grouped Product → Simple Product category inheritance
+
+New requirement (not previously implemented): child Simple Products had
+no category assignments at all, only their parent Grouped Product did.
+
+**Source investigation first, per instruction.** Live query against
+`cosmotect_production`: `dtb_category_item` (Item/Grouped level) holds
+1,833 rows and is what `ItemRepository::getCategoryIdsByItemId()` already
+reads. `dtb_product_category` (would be the Product/Simple-level join
+table) exists in the schema but holds **zero rows** - confirmed vestigial,
+not an active data path. `dtb_product` has no category column either.
+Conclusion: categories genuinely only exist at the Item level in this
+dataset - nothing to lose or flatten by inheriting them onto children.
+On 248p5: 1,055 Grouped Products had categories, 0 Simple Products did,
+before this round.
+
+**A real interaction surfaced during investigation, decided by explicit
+user choice rather than assumed:** `ProductMapper` deliberately sets
+every Simple Product (including grouped-children) to
+`Visibility::VISIBILITY_BOTH` (a prior, already-recorded business
+decision, not something this round changed). All 27,589 Simple Products
+are visibility=4. Inheriting categories therefore makes each child appear
+as its own tile on category pages next to its Grouped Product parent, at
+the full ~27.5K-child scale. Asked the user directly; instructed to
+implement literally as specified (no extra listing-suppression logic).
+
+**Design.** New `eccube_category_inheritance_map` table
+(magento_product_id, magento_category_id, eccube_item_id) records which
+category ids on a given child were placed there by inheritance, as
+opposed to independently assigned some other way. `ChildCategoryInheritanceService::cascade()`
+computes `independent = current - previouslyInherited`, then
+`new = union(independent, parentCategoryIds)`, and only calls
+`CategoryLinkManagementInterface::assignProductToCategories()` when that
+differs from the current set - never a blind replace. This is what lets
+a sync-time category change on the parent correctly drop a category from
+children (it was only ever there via inheritance) while never touching a
+category that has no inheritance record.
+
+Called from two existing places rather than a new pipeline stage,
+matching the module's own "sync extends import, only the scan source
+differs" convention:
+- `ProductRelationImporter`, right after newly-linked children are
+  attached - covers a fresh install (children don't exist yet when
+  `import:group-products` itself runs, so cascading only from
+  `ItemImporter` would be a no-op on day one; `import:product-relations`
+  runs after linking, per the documented pipeline order).
+- `ItemImporter::persist()` (inherited unchanged by `ItemSync`), right
+  after the Grouped Product's own categories are (re)assigned - covers
+  an EC-CUBE-side category change picked up by `sync:group-products`
+  propagating to already-linked children.
+
+**A real bug found via testing, not assumed away:** initial testing
+(repeated `cascade()` calls within one PHP process) showed idempotency
+and sync-change detection silently failing. Root cause:
+`ProductRepositoryInterface::getById()` caches the loaded Product
+instance for the life of the process, and neither
+`CategoryLinkManagementInterface::assignProductToCategories()` nor its
+own internal diff (which itself re-reads categories through the same
+cached instance) invalidate that cache. Fixed by reading a child's
+current category assignment straight from `catalog_category_product` via
+`ResourceConnection`, bypassing the Product model entirely for that one
+comparison. Real production usage (`ItemImporter`/`ProductRelationImporter`
+each call `cascade()` at most once per item per CLI process) was never
+actually exposed to this, but the fix makes the guarantee hold
+regardless, and was necessary for the multi-run test itself to be valid.
+
+**Testing performed**, all against a real Grouped Product with 3
+categories and 2 Simple children (Magento id 851 / EC-CUBE item 3867,
+categories 131/164/62, children 22977/22978), via separate `php` process
+invocations per step (matching how separate CLI commands actually run in
+production, and sidestepping the cache issue above entirely):
+- Dry-run: 0 real writes, correctly reports 2 would-be-affected.
+- Execute: both children correctly receive all 3 parent categories.
+- Idempotent re-run (same parent set): 0 affected, 0 changed rows.
+- Manually assigned an independent category (4) to one child, outside
+  inheritance.
+- Simulated a parent category change (131,164,62 -> 131,3): both
+  children correctly end up with [131,3] from inheritance; the child
+  with the independent category correctly keeps it -> [3,4,131]. Matches
+  the requested worked example (B and 62 dropped, 3 added) while never
+  touching the independently-assigned category.
+- Two further idempotent re-runs after the sync change: 0 affected each
+  time.
+- End-to-end through the real CLI: forced one item's content hash out of
+  sync, ran `cosmotec:eccube:import:group-products --dry-run` (0 writes,
+  correctly identifies only that 1 of 1,092 items as needing work) then
+  `--execute` (Updated: 1, Skipped: 1091, Errors: 0) - children correctly
+  received the categories via the real `ItemImporter` integration point,
+  with no impact on any other item. `import:product-relations --dry-run`
+  also re-run clean (0 errors) to confirm that integration point's DI
+  wiring.
+- All test data restored to its original pristine state afterward
+  (children back to 0 categories, tracking table back to 0 rows, item's
+  content_hash back to its genuine value) - confirmed via full-dataset
+  recount: 1,055 Grouped Products with categories (unchanged), 0 Simple
+  Products with categories (back to baseline).
+- `php -l` (all changed/new files), `vendor/bin/phpunit` module suite
+  (93/93, unchanged from baseline - no existing test touched or broken),
+  `setup:upgrade` (new table created cleanly), `setup:di:compile` (clean,
+  confirms all new constructor wiring resolves).
+
+**Files changed:** new `Model/Category/ChildCategoryInheritanceService.php`,
+`Model/ResourceModel/CategoryInheritanceMap.php`,
+`Model/Repository/CategoryInheritanceMapRepository.php`,
+`Api/CategoryInheritanceMapRepositoryInterface.php`. Modified
+`etc/db_schema.xml` (new table), `etc/di.xml` (new preference),
+`Model/Import/ItemImporter.php`, `Model/Import/ProductRelationImporter.php`,
+`Model/Sync/ItemSync.php` (constructor passthrough only). No importer's
+existing logic was altered beyond adding the new cascade call - Tabs,
+Connection Parts, CAD, Documents, Media, Specifications, Attributes,
+Related Products, Inventory and all other migration areas were not
+touched or tested this round.
+
+**Status: implemented and verified on staging. Not committed, not
+pushed - awaiting approval.**
+
+### Round 58 - Remote media (S3/CloudFront) fallback for SOURCE_FILE_NOT_FOUND
+
+Investigation (prior round, read-only) found EC-CUBE's own remote S3/
+CloudFront storage (static.cosmotec-co.jp) holds the vast majority of
+files MediaValidator was reporting SOURCE_FILE_NOT_FOUND for, since it
+only ever checked the local `save_image` folder. This round implements
+the fallback, per explicit instruction: local filesystem first, then
+(only if enabled/configured) remote, then genuine not-found.
+
+**New:** `Model/Media/RemoteMediaLocator` (package + URL resolution,
+ported from EC-CUBE's own AwsS3FileUpload/S3Constant/framework.yaml -
+`save_image` for images, `save_zip` for cad2d/cad3d, live-confirmed
+these are NOT interchangeable, a save_zip file 403s under save_image),
+`RemoteMediaClient` (Magento's own Curl client; HEAD first, falls back
+to a ranged GET when HEAD is inconclusive; never throws), `RemoteCheckResult`
+/ `MediaSourceResolution` (typed outcomes), `RemoteMediaResolver`
+(orchestrates the 3-way resolution, downloads a remote hit to a var/tmp
+temp file, `cleanup()` always removes it). New
+`Console/Command/MediaRemoteRecoveryReportCommand`
+(`cosmotec:eccube:media:remote-recovery-report`) - read-only bulk report
+over all needs_review rows, concurrent cURL (isolated to this reporting
+tool only, not the real import path) since 40K+ sequential checks would
+take hours.
+
+**New config** (Stores > Configuration > Cosmotec > EC-CUBE Migration >
+Remote Media), off by default so existing local-only behavior is
+unchanged until explicitly turned on: Enable Remote Media Fallback,
+Remote Media Base URL (set to the real `https://static.cosmotec-co.jp`
+on 248p5), Remote Media Timeout.
+
+**Schema:** new `eccube_media_map.source_type` column
+(local|remote|not_found, default 'local' for pre-existing rows).
+
+**MediaImporter integration:** resolution now happens once per file in
+`importOne()`, before validation; the resolved path (local or a temp
+download) is threaded explicitly through `computeHash()`, `persist()`
+and its four sub-methods (previously each independently recomputed the
+local path from config - now all just take the already-resolved path as
+a parameter). `EccubeConfigProviderInterface $config` dropped from
+MediaImporter's constructor - no longer used anywhere in the class after
+this change. `MediaValidator::validate()` gained an optional second
+parameter (`?string $resolvedAbsolutePath`) - omitting it preserves the
+exact original local-only behavior, so nothing else implementing/calling
+`ValidatorInterface` is affected.
+
+**A real idempotency bug found and fixed during testing, not assumed
+safe:** `computeHash()`'s existing size-gated fallback (>1MB: hash
+filename+size+mtime instead of content) would have used a remote temp
+file's mtime, which is "now" on every single download - silently
+breaking idempotency for any remote-recovered file over 1MB. Fixed by
+always content-hashing a remote-sourced file regardless of size (the
+full content is already in memory from the download itself, so this
+costs nothing extra).
+
+**Focused tests (real EC-CUBE data + real CDN requests, per the
+required A-G scenarios), all via the actual `import:images` CLI
+command:**
+- Canonical example (EC-CUBE item 5 / Magento SKU ECCUBE-ITEM-5,
+  upload_file_id=195, `10435_i-5d4d16f88dd0d-5.jpg`): dry-run correctly
+  flips needs_review->would-import; execute recovers it end-to-end -
+  real file lands at `pub/media/catalog/product/1/0/...jpg`, Magento's
+  own resize cache generates normally, `eccube_media_map.source_type`
+  = remote, temp file deleted after. Second `--execute` run: Skipped=1,
+  0 duplicate gallery entries, 0 duplicate map rows.
+- B/C/D/E (remote-only product/dimension/cad2d/cad3d, upload_file_id
+  2483/21518/38805/113820): all recovered correctly through their
+  respective Magento targets (gallery / eccube_dimension_image /
+  eccube_cad2d_file+pub/media/cad/cad2d / eccube_cad3d_file+pub/media/cad/cad3d),
+  cad2d/cad3d confirmed via log to have used `save_zip`, not
+  `save_image`. Re-run confirms idempotency for all four (Skipped=1
+  each, 0 changes).
+- F (genuine missing): a fabricated MediaFile resolved directly through
+  RemoteMediaResolver correctly returns NOT_FOUND with a SOURCE_FILE_NOT_FOUND
+  message citing both a confirmed local absence and a confirmed remote
+  403.
+- A/G (known local file, upload_file_id=1124): resolves via local path
+  only (log shows no remote call attempted), hash matches existing,
+  correctly skipped - proves local-first resolution order and that nothing
+  about existing local-file behavior changed.
+
+**Full dry-run (real, not sampled) across the complete needs_review
+dataset**, via `media:remote-recovery-report --concurrency=40`:
+
+| Relation type | Total | Local found | Remote found | Confirmed missing | Remote errors |
+|---|---|---|---|---|---|
+| product | 18,250 | 0 | 18,216 | 34 | 0 |
+| dimension | 9,347 | 0 | 9,324 | 23 | 0 |
+| cad3d | 10,654 | 0 | 10,651 | 3 | 0 |
+| cad2d | 1,419 | 0 | 1,418 | 1 | 0 |
+| item | 472 | 0 | 471 | 1 | 0 |
+| category | 127 | 0 | 127 | 0 | 0 |
+| catalog | 136 | 0 | 136 | 0 | 0 |
+
+Total needs_review before: 40,405 (5 fewer than the original 40,410 -
+the five focused-test recoveries above). Remote recoverable: **40,343**
+(99.85%). Genuinely missing (confirmed absent both locally and
+remotely): **62** (0.15%). Remote check failures: 0. Spot-checked 300
+random `product` records independently (outside the report tool) and
+found the same ~0.2% miss rate; both actual misses found were EC-CUBE's
+own `noimage_p-*` placeholder filenames - genuinely never uploaded
+anywhere, not a resolution bug.
+
+**Not done this round, per explicit instruction:** the full 40,343-record
+recovery execute. Only the 6 single-record focused-test recoveries
+(the canonical example + B/C/D/E) were actually written to Magento.
+`php -l`, `vendor/bin/phpunit` (93/93, unchanged), `setup:upgrade`,
+`setup:di:compile` all clean throughout.
+
+**Status: dry-run complete, awaiting explicit approval before running
+the full recovery.**

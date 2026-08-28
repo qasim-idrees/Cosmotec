@@ -16,7 +16,9 @@ use Cosmotec\EccubeMigration\Model\ItemAdditionalContentMapFactory;
 use Cosmotec\EccubeMigration\Model\ResourceModel\ItemAdditionalContentMap as ItemAdditionalContentMapResource;
 use Cosmotec\EccubeMigration\Model\ResourceModel\ItemAdditionalContentMap\CollectionFactory;
 use Magento\Framework\Exception\AlreadyExistsException;
+use Magento\Framework\Exception\CouldNotDeleteException;
 use Magento\Framework\Exception\CouldNotSaveException;
+use Magento\Framework\Exception\NoSuchEntityException;
 
 class ItemAdditionalContentMapRepository implements ItemAdditionalContentMapRepositoryInterface
 {
@@ -34,6 +36,31 @@ class ItemAdditionalContentMapRepository implements ItemAdditionalContentMapRepo
         $this->resource->load($map, $eccubeAdditionalInformationId, 'eccube_additional_information_id');
 
         return $map->getId() === null ? null : $map;
+    }
+
+    public function getById(int $entityId): ItemAdditionalContentMap
+    {
+        /** @var ItemAdditionalContentMap $map */
+        $map = $this->mapFactory->create();
+        $this->resource->load($map, $entityId);
+
+        if ($map->getId() === null) {
+            throw new NoSuchEntityException(__('EC-CUBE additional content tab with id "%1" does not exist.', $entityId));
+        }
+
+        return $map;
+    }
+
+    public function delete(ItemAdditionalContentMap $map): void
+    {
+        try {
+            $this->resource->delete($map);
+        } catch (\Exception $e) {
+            throw new CouldNotDeleteException(
+                __('Could not delete additional content tab id %1: %2', $map->getId(), $e->getMessage()),
+                $e
+            );
+        }
     }
 
     public function save(ItemAdditionalContentMap $map): ItemAdditionalContentMap

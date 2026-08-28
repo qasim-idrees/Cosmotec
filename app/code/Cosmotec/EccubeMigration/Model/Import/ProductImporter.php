@@ -169,6 +169,15 @@ class ProductImporter implements ImporterInterface
                 // storefront and was always correct), but a genuine
                 // multi-store fresh-install portability gap.
                 $magentoProduct = $this->magentoProductRepository->getById((int) $existingMap->getMagentoProductId(), false, 0);
+
+                // QA FIX: see ItemImporter::persist() for the full
+                // mechanism and live-confirmed test results - Magento's
+                // SaveHandler otherwise silently wipes any link type this
+                // importer never explicitly touches (Related/Up-Sell/
+                // Cross-Sell) on every save. Round-tripping through
+                // setProductLinks(getProductLinks()) - not merely calling
+                // getProductLinks() alone - is the verified fix.
+                $magentoProduct->setProductLinks($magentoProduct->getProductLinks());
             } catch (NoSuchEntityException) {
                 $magentoProduct = $this->newProduct();
                 $isUpdate = false;

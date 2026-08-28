@@ -40,6 +40,8 @@
                 type="Cosmotec\EccubeMigration\Model\Product\ProductReferenceProvider"/>
     <preference for="Cosmotec\EccubeMigration\Api\MediaMapRepositoryInterface"
                 type="Cosmotec\EccubeMigration\Model\Repository\MediaMapRepository"/>
+    <preference for="Cosmotec\EccubeMigration\Api\CategoryInheritanceMapRepositoryInterface"
+                type="Cosmotec\EccubeMigration\Model\Repository\CategoryInheritanceMapRepository"/>
     <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceRepositoryInterface"
                 type="Cosmotec\EccubeMigration\Model\Repository\ProductReferenceRepository"/>
     <preference for="Cosmotec\EccubeMigration\Api\ProductReferenceMapRepositoryInterface"
@@ -168,16 +170,54 @@
         <plugin name="cosmotec_eccube_product_references"
                 type="Cosmotec\EccubeMigration\Plugin\AddProductReferencesToProduct"
                 sortOrder="10"/>
-        <plugin name="cosmotec_eccube_connection_parts"
-                type="Cosmotec\EccubeMigration\Plugin\AddConnectionPartsToProduct"
-                sortOrder="11"/>
         <plugin name="cosmotec_eccube_additional_content"
                 type="Cosmotec\EccubeMigration\Plugin\AddAdditionalContentToProduct"
                 sortOrder="12"/>
     </type>
 
-    <preference for="Cosmotec\EccubeMigration\Api\CouplingProductProviderInterface"
-                type="Cosmotec\EccubeMigration\Model\Product\CouplingProductProvider"/>
+    <!--
+        Connection Parts (Task 2 QA rework): previously a read-only custom
+        block reading Api\CouplingProductProviderInterface (now removed -
+        see git history). Now a genuine Magento product-link type,
+        administrable exactly like Related/Up-Sells/Cross-Sells - see
+        Setup\Patch\Data\CreateConnectionPartLinkType (registers the
+        link_type_id in catalog_product_link_type/catalog_product_link_attribute
+        and backfills the 862 already-imported relationships as real
+        catalog_product_link rows), Ui\DataProvider\Product\Form\Modifier\
+        ConnectionParts (the admin fieldset/modal, cloned from Magento's own
+        Related.php), and Model\ProductLink\ConnectionPart* (the
+        DataProvider/CollectionProvider Magento's generic link
+        infrastructure requires per link type). eccube_coupling_product_map
+        is unchanged and remains the EC-CUBE import-provenance/sync-status
+        record; catalog_product_link is now the live, admin-editable data.
+    -->
+    <type name="Magento\Catalog\Model\Product\LinkTypeProvider">
+        <arguments>
+            <argument name="linkTypes" xsi:type="array">
+                <item name="connection_part" xsi:type="const">Cosmotec\EccubeMigration\Model\ProductLink\ConnectionPartLinkType::LINK_TYPE_CONNECTION_PART</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Magento\Catalog\Model\ProductLink\CollectionProvider">
+        <arguments>
+            <argument name="providers" xsi:type="array">
+                <item name="connection_part" xsi:type="object">Cosmotec\EccubeMigration\Model\ProductLink\ConnectionPartCollectionProvider</item>
+            </argument>
+        </arguments>
+    </type>
+    <!--
+        The product-form Modifier\Pool override that injects
+        Ui\DataProvider\Product\Form\Modifier\ConnectionParts lives in
+        etc/adminhtml/di.xml, not here - Magento\Catalog\Ui\DataProvider\
+        Product\Form\Modifier\Pool is itself declared as a virtualType
+        inside Magento_Catalog's etc/adminhtml/di.xml (admin-area scope),
+        so an override in this GLOBAL di.xml never merges with it (found
+        live: the real admin product edit page never showed the
+        Connection Parts fieldset at all, even though setup:di:compile
+        succeeded and the modifier worked correctly in isolation - the
+        override was silently inert because of the scope mismatch).
+    -->
+
 
     <!-- CLI commands -->
     <type name="Magento\Framework\Console\CommandListInterface">
@@ -191,6 +231,7 @@
                 <item name="cosmotecEccubeImportSimpleProducts" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportSimpleProductsCommand</item>
                 <item name="cosmotecEccubeImportProductRelations" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductRelationsCommand</item>
                 <item name="cosmotecEccubeImportImages" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportImagesCommand</item>
+                <item name="cosmotecEccubeMediaRemoteRecoveryReport" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\MediaRemoteRecoveryReportCommand</item>
                 <item name="cosmotecEccubeValidateInventory" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ValidateInventoryCommand</item>
                 <item name="cosmotecEccubeImportInventory" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportInventoryCommand</item>
                 <item name="cosmotecEccubeSyncCategories" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\SyncCategoriesCommand</item>
@@ -221,6 +262,7 @@
                 <item name="cosmotecEccubeDiagnoseGallery" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\DiagnoseGalleryCommand</item>
                 <item name="cosmotecEccubeImportProductReferences" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportProductReferencesCommand</item>
                 <item name="cosmotecEccubeImportAdditionalContent" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\ImportItemAdditionalContentCommand</item>
+                <item name="cosmotecEccubeCorrectDimensionCadMedia" xsi:type="object">Cosmotec\EccubeMigration\Console\Command\CorrectDimensionCadMediaCommand</item>
             </argument>
         </arguments>
     </type>

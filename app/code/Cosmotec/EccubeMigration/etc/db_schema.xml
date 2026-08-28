@@ -200,7 +200,8 @@
         <column xsi:type="varchar" name="magento_role" nullable="true" length="64" comment="image,small_image,thumbnail | dimension_drawing | cad2d | cad3d | catalog"/>
         <column xsi:type="varchar" name="content_hash" nullable="true" length="80" comment="filename+size+mtime hash for change detection - prefixed sha256:/meta: + 64 hex chars, needs more than 64"/>
         <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending" comment="pending|imported|updated|skipped|error|needs_review|obsolete"/>
-        <column xsi:type="text" name="error_message" nullable="true" comment="Non-empty whenever status is skipped or error"/>
+        <column xsi:type="text" name="error_message" nullable="true" comment="Non-empty whenever status is skipped or error. For needs_review, prefixed SOURCE_FILE_NOT_FOUND (neither local nor remote) or REMOTE_FETCH_FAILED (remote check/download errored - not a confirmed absence)."/>
+        <column xsi:type="varchar" name="source_type" nullable="false" length="16" default="local" comment="Where the imported binary actually came from: local|remote|not_found. Default 'local' for rows written before remote fallback existed (all of which were, by definition, found locally under the old local-only check)."/>
         <column xsi:type="timestamp" name="last_synced_at" nullable="true" comment="Last successful sync"/>
         <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
         <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated At"/>
@@ -228,10 +229,10 @@
     </table>
 
     <table name="eccube_product_reference_map" resource="default" engine="innodb"
-           comment="Maps EC-CUBE dtb_product_reference (1:N document name/link) to Magento. Deliberately NOT flattened into numbered EAV attributes.">
+           comment="Maps EC-CUBE dtb_product_reference (1:N document name/link) to Magento. Deliberately NOT flattened into numbered EAV attributes. Also holds admin-created references (nullable source columns) added directly through the Document Name/Reference Link (1)/(2) convenience fields - see Block/Adminhtml/Product/Documents.">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
-        <column xsi:type="int" name="eccube_reference_id" unsigned="true" nullable="false" comment="dtb_product_reference.id"/>
-        <column xsi:type="int" name="eccube_product_id" unsigned="true" nullable="false" comment="dtb_product_reference.product_id"/>
+        <column xsi:type="int" name="eccube_reference_id" unsigned="true" nullable="true" comment="dtb_product_reference.id. NULL for references created directly in Magento Admin (no EC-CUBE origin)."/>
+        <column xsi:type="int" name="eccube_product_id" unsigned="true" nullable="true" comment="dtb_product_reference.product_id. NULL for admin-created references."/>
         <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="true" comment="Resolved Magento simple product id"/>
         <column xsi:type="varchar" name="reference_name" nullable="true" length="64" comment="dtb_product_reference.name (document name)"/>
         <column xsi:type="varchar" name="reference_link" nullable="true" length="512" comment="dtb_product_reference.link"/>
@@ -257,10 +258,10 @@
     </table>
 
     <table name="eccube_item_additional_content" resource="default" engine="innodb"
-           comment="Maps EC-CUBE dtb_item_additional_information (item-level, database-driven HTML tabs - Catalog, Assembly method, etc. - 89 distinct tab names, source-confirmed) to a dedicated Magento admin section, separate from EC-CUBE Specification. Deliberately NOT one EAV attribute per tab name (docs: do not create dozens of hardcoded Magento attributes for every tab).">
+           comment="Maps EC-CUBE dtb_item_additional_information (item-level, database-driven HTML tabs - Catalog, Assembly method, etc. - 89 distinct tab names, source-confirmed) to a dedicated Magento admin section, separate from EC-CUBE Specification. Deliberately NOT one EAV attribute per tab name (docs: do not create dozens of hardcoded Magento attributes for every tab). Also holds admin-created tabs (nullable source columns), managed independently of EC-CUBE import/sync - see ItemAdditionalContentMapRepository/Controller/Adminhtml/Product/AdditionalContent.">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
-        <column xsi:type="int" name="eccube_additional_information_id" unsigned="true" nullable="false" comment="dtb_item_additional_information.id - the exact source row, for idempotent re-runs"/>
-        <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="false" comment="dtb_item_additional_information.item_id"/>
+        <column xsi:type="int" name="eccube_additional_information_id" unsigned="true" nullable="true" comment="dtb_item_additional_information.id - the exact source row, for idempotent re-runs. NULL for tabs created directly in Magento Admin (no EC-CUBE origin)."/>
+        <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="true" comment="dtb_item_additional_information.item_id. NULL for admin-created tabs."/>
         <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="true" comment="Resolved Magento Grouped Product id"/>
         <column xsi:type="varchar" name="tab_name_en" nullable="true" length="64" comment="dtb_item_additional_information.name_en - English tab title (may be empty; Japanese fallback applies, never invented)"/>
         <column xsi:type="varchar" name="tab_name_ja" nullable="true" length="32" comment="dtb_item_additional_information.name - Japanese tab title"/>
@@ -387,6 +388,25 @@
         </constraint>
         <index referenceId="ECCUBE_RELATED_PRODUCT_MAP_PRODUCT_ID" indexType="btree">
             <column name="eccube_product_id"/>
+        </index>
+    </table>
+
+    <table name="eccube_category_inheritance_map" resource="default" engine="innodb"
+           comment="Tracks which of a Simple Product's Magento category assignments were placed there by inheritance from its parent Grouped Product (dtb_category_item), as opposed to independently/manually assigned. On sync, only rows tracked here are ever removed when the parent's own category set changes; anything else on the product is left untouched. See Model/Category/ChildCategoryInheritanceService.">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="int" name="magento_product_id" unsigned="true" nullable="false" comment="Magento Simple Product id (the child)"/>
+        <column xsi:type="int" name="magento_category_id" unsigned="true" nullable="false" comment="Magento category id inherited from the parent Grouped Product"/>
+        <column xsi:type="int" name="eccube_item_id" unsigned="true" nullable="false" comment="dtb_item.id of the parent Grouped Product this category was inherited from"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="ECCUBE_CATEGORY_INHERITANCE_MAP_PRODUCT_CATEGORY">
+            <column name="magento_product_id"/>
+            <column name="magento_category_id"/>
+        </constraint>
+        <index referenceId="ECCUBE_CATEGORY_INHERITANCE_MAP_ITEM" indexType="btree">
+            <column name="eccube_item_id"/>
         </index>
     </table>
 
